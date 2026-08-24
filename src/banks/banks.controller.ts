@@ -8,9 +8,14 @@ import {
 	ApiSuccessResponse,
 } from "../common/decorators/api-response.decorator";
 import type { Profile } from "../generated/prisma/client";
+import { AccountResponseDto } from "../accounts/dto/account.dto";
 import { BanksService } from "./banks.service";
 import { BankResponseDto, CreateBankDto, QueryBanksDto, UpdateBankDto } from "./dto/bank.dto";
-import { BankSummaryResponseDto, QueryBankSummaryDto } from "./dto/bank-summary.dto";
+import { BankCreditCardResponseDto, BankLoanResponseDto } from "./dto/bank-sub-resources.dto";
+import {
+	IncomeVsExpensesResponseDto,
+	QueryIncomeVsExpensesDto,
+} from "./dto/income-vs-expenses.dto";
 
 @ApiTags("banks")
 @ApiBearerAuth()
@@ -19,7 +24,9 @@ export class BanksController {
 	constructor(private readonly banksService: BanksService) {}
 
 	@Get()
-	@ApiOperation({ summary: "List all banks for the current user with optional filters" })
+	@ApiOperation({
+		summary: "List all banks for the current user with optional filters and KPIs",
+	})
 	@ApiArraySuccessResponse(200, BankResponseDto, "Returns array of banks")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(500, "Internal server error")
@@ -28,40 +35,71 @@ export class BanksController {
 			isActive: query.isActive === undefined ? undefined : query.isActive === "true",
 			sortBy: query.sortBy,
 			order: query.order,
+			withInfo: query.info === "true",
 		});
 	}
 
-	@Get(":id/summary")
-	@ApiOperation({ summary: "Get bank financial summary" })
+	@Get(":id/income-vs-expenses")
+	@ApiOperation({ summary: "Get income vs expenses for a bank in a given period" })
 	@ApiSuccessResponse(
 		200,
-		BankSummaryResponseDto,
-		"Returns the bank financial summary with KPIs, income/expenses, and loans",
+		IncomeVsExpensesResponseDto,
+		"Returns income and expenses totals for the period",
 	)
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Bank not found")
 	@ApiErrorResponse(422, "Invalid period value")
 	@ApiErrorResponse(500, "Internal server error")
-	async getSummary(
+	async getIncomeVsExpenses(
 		@Param("id") id: string,
-		@Query() query: QueryBankSummaryDto,
+		@Query() query: QueryIncomeVsExpensesDto,
 		@CurrentUser() profile: Profile,
 	) {
-		return this.banksService.getSummary(id, profile, query.period ?? "month");
+		return this.banksService.getIncomeVsExpenses(id, profile.id, query.period ?? "month");
 	}
 
-	@Get(":id")
-	@ApiOperation({ summary: "Get a single bank by ID with its accounts (control center view)" })
-	@ApiSuccessResponse(
-		200,
-		BankResponseDto,
-		"Returns the bank with nested accounts, credit cards, and loans",
-	)
+	@Get(":id/accounts")
+	@ApiOperation({ summary: "List all active accounts belonging to a bank" })
+	@ApiArraySuccessResponse(200, AccountResponseDto, "Returns array of accounts for this bank")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Bank not found")
 	@ApiErrorResponse(500, "Internal server error")
-	async findOne(@Param("id") id: string, @CurrentUser() profile: Profile) {
-		return this.banksService.findOne(id, profile.id);
+	async findAccountsByBank(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.banksService.findAccountsByBank(id, profile.id);
+	}
+
+	@Get(":id/credit-cards")
+	@ApiOperation({ summary: "List all credit cards belonging to a bank" })
+	@ApiArraySuccessResponse(200, BankCreditCardResponseDto, "Returns array of credit cards for this bank")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Bank not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async findCreditCardsByBank(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.banksService.findCreditCardsByBank(id, profile.id);
+	}
+
+	@Get(":id/loans")
+	@ApiOperation({ summary: "List all loans belonging to a bank with computed progress" })
+	@ApiArraySuccessResponse(200, BankLoanResponseDto, "Returns array of loans for this bank")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Bank not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async findLoansByBank(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.banksService.findLoansByBank(id, profile.id);
+	}
+
+	@Get(":id")
+	@ApiOperation({ summary: "Get a single bank by ID, optionally with financial KPIs" })
+	@ApiSuccessResponse(200, BankResponseDto, "Returns the bank, with info block when ?info=true")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Bank not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async findOne(
+		@Param("id") id: string,
+		@CurrentUser() profile: Profile,
+		@Query() query: QueryBanksDto,
+	) {
+		return this.banksService.findOne(id, profile.id, query.info === "true");
 	}
 
 	@Post()

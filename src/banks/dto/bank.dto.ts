@@ -18,6 +18,52 @@ enum SortOrder {
 	desc = "desc",
 }
 
+// ─── KPI types ────────────────────────────────────────────────────────
+
+export interface BankKpis {
+	netWorth: number;
+	liquidity: number;
+	debt: number;
+	balanceBreakdown: { assets: number; liabilities: number };
+}
+
+export class BalanceBreakdownDto {
+	@ApiProperty({
+		example: 18000000,
+		description: "Total assets in integer cents (positive balances across all accounts)",
+	})
+	assets!: number;
+
+	@ApiProperty({
+		example: 5500000,
+		description: "Total liabilities in integer cents (negative balances + loan remaining)",
+	})
+	liabilities!: number;
+}
+
+export class BankInfoDto {
+	@ApiProperty({
+		example: 12500000,
+		description: "Net worth in integer cents (assets - liabilities)",
+	})
+	netWorth!: number;
+
+	@ApiProperty({
+		example: 8000000,
+		description: "Liquidity in integer cents (DEBIT + CASH accounts with positive balance)",
+	})
+	liquidity!: number;
+
+	@ApiProperty({
+		example: 5500000,
+		description: "Total debt in integer cents (credit utilized + loan remaining)",
+	})
+	debt!: number;
+
+	@ApiProperty({ type: BalanceBreakdownDto, description: "Balance breakdown in cents" })
+	balanceBreakdown!: BalanceBreakdownDto;
+}
+
 export class CreateBankDto {
 	@ApiProperty({ example: "BBVA", description: "Bank display name" })
 	@IsString()
@@ -87,6 +133,12 @@ export class BankResponseDto {
 
 	@ApiProperty({ example: "2026-07-28T07:06:12.000Z", description: "Last update date" })
 	updatedAt!: Date;
+
+	@ApiPropertyOptional({
+		type: BankInfoDto,
+		description: "Financial KPIs (only present when ?info=true)",
+	})
+	info?: BankInfoDto;
 }
 
 export class QueryBanksDto {
@@ -117,4 +169,13 @@ export class QueryBanksDto {
 	@IsOptional()
 	@IsEnum(SortOrder)
 	order?: SortOrder;
+
+	@ApiPropertyOptional({
+		example: "true",
+		description:
+			'Include financial KPIs (liquidity, debt) per bank. Accepts "true"/"false". Defaults to false.',
+	})
+	@IsOptional()
+	@IsBooleanString()
+	info?: string;
 }

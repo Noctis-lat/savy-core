@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { toCents } from "../common/utils/money.util";
 import type { Category, CategoryType } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateCategoryDto, UpdateCategoryDto } from "./dto/category.dto";
@@ -73,6 +74,83 @@ export class CategoriesService {
 		await this.prisma.category.delete({
 			where: { id },
 		});
+	}
+
+	// ─── Top categories ────────────────────────────────────────────────
+
+	async findTopByBank(bankId: string, profileId: string, limit = 5) {
+		// Validate bank ownership
+		const bank = await this.prisma.bank.findFirst({
+			where: { id: bankId, profileId },
+		});
+		if (!bank) {
+			throw new NotFoundException("Bank not found");
+		}
+
+		const accounts = await this.prisma.account.findMany({
+			where: { bankId, profileId, isActive: true },
+			select: { id: true },
+		});
+		const accountIds = accounts.map((a) => a.id);
+
+		return this.computeTopCategories(accountIds, limit);
+	}
+
+	async findTopByAccount(accountId: string, profileId: string, limit = 5) {
+		// Validate account ownership
+		const account = await this.prisma.account.findFirst({
+			where: { id: accountId, profileId },
+		});
+		if (!account) {
+			throw new NotFoundException("Account not found");
+		}
+
+		return this.computeTopCategories([accountId], limit);
+	}
+
+	private async computeTopCategories(accountIds: string[], limit: number) {
+		if (accountIds.length === 0) {
+			return [];
+		}
+
+		const transactions = await this.prisma.transaction.findMany({
+			where: {
+				accountId: { in: accountIds },
+				type: "EXPENSE",
+				categoryId: { not: null },
+			},
+			select: { amount: true, categoryId: true },
+		});
+
+		const categorySums = new Map<string, number>();
+		let totalExpenses = 0;
+
+		for (const t of transactions) {
+			const cents = toCents(t.amount);
+			totalExpenses += cents;
+			if (t.categoryId) {
+				categorySums.set(t.categoryId, (categorySums.get(t.categoryId) ?? 0) + cents);
+			}
+		}
+
+		const topEntries = [...categorySums.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
+
+		const categoryIds = topEntries.map(([cid]) => cid);
+		const categoryRows =
+			categoryIds.length > 0
+				? await this.prisma.category.findMany({
+						where: { id: { in: categoryIds } },
+						select: { id: true, name: true },
+					})
+				: [];
+		const categoryNameById = new Map(categoryRows.map((c) => [c.id, c.name]));
+
+		return topEntries.map(([categoryId, amount]) => ({
+			categoryId,
+			categoryName: categoryNameById.get(categoryId) ?? "Unknown",
+			amount,
+			percentage: totalExpenses > 0 ? Math.round((amount / totalExpenses) * 100) : 0,
+		}));
 	}
 
 	private isUniqueConstraintError(error: unknown): boolean {

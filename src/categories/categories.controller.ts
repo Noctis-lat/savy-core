@@ -15,6 +15,7 @@ import {
 	QueryCategoriesDto,
 	UpdateCategoryDto,
 } from "./dto/category.dto";
+import { QueryTopCategoriesDto, TopCategoryResponseDto } from "./dto/top-category.dto";
 
 @ApiTags("categories")
 @ApiBearerAuth()
@@ -33,6 +34,34 @@ export class CategoriesController {
 			sortBy: query.sortBy,
 			order: query.order,
 		});
+	}
+
+	@Get("top/banks/:id")
+	@ApiOperation({ summary: "Get top expense categories for a bank" })
+	@ApiArraySuccessResponse(200, TopCategoryResponseDto, "Returns top categories by expense amount")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Bank not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async findTopByBank(
+		@Param("id") id: string,
+		@CurrentUser() profile: Profile,
+		@Query() query: QueryTopCategoriesDto,
+	) {
+		return this.categoriesService.findTopByBank(id, profile.id, query.limit ?? 5);
+	}
+
+	@Get("top/accounts/:id")
+	@ApiOperation({ summary: "Get top expense categories for an account" })
+	@ApiArraySuccessResponse(200, TopCategoryResponseDto, "Returns top categories by expense amount")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Account not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async findTopByAccount(
+		@Param("id") id: string,
+		@CurrentUser() profile: Profile,
+		@Query() query: QueryTopCategoriesDto,
+	) {
+		return this.categoriesService.findTopByAccount(id, profile.id, query.limit ?? 5);
 	}
 
 	@Get(":id")
