@@ -1,11 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { Type } from "class-transformer";
 import {
 	IsBooleanString,
 	IsEnum,
+	IsInt,
 	IsNotEmpty,
 	IsNumber,
 	IsOptional,
 	IsString,
+	Max,
+	Min,
 } from "class-validator";
 
 enum AccountType {
@@ -24,6 +28,11 @@ enum AccountSortBy {
 enum SortOrder {
 	asc = "asc",
 	desc = "desc",
+}
+
+enum GroupBy {
+	banks = "banks",
+	types = "types",
 }
 
 export class CreateAccountDto {
@@ -136,6 +145,76 @@ export class AccountResponseDto {
 	updatedAt!: Date;
 }
 
+// ─── Financial info DTOs ─────────────────────────────────────────────
+
+export class AccountsInfoDto {
+	@ApiProperty({ example: 12500000, description: "Net worth (assets - liabilities)" })
+	netWorth!: number;
+
+	@ApiProperty({ example: 8000000, description: "Liquidity (DEBIT + CASH balances)" })
+	liquidity!: number;
+
+	@ApiProperty({ example: 5500000, description: "Debt (CREDIT + LOAN balances, positive value)" })
+	debt!: number;
+}
+
+// ─── Grouped accounts DTOs ───────────────────────────────────────────
+
+export class AccountGroupDto {
+	@ApiProperty({
+		example: "DEBIT",
+		description:
+			"Stable identifier (AccountType value or bankId, 'none' for accounts without a bank)",
+	})
+	key!: string;
+
+	@ApiProperty({
+		example: "DEBIT",
+		description:
+			"Display label (AccountType value or bank name, 'No bank' for accounts without a bank)",
+	})
+	title!: string;
+
+	@ApiProperty({ type: [AccountResponseDto], description: "Accounts in this group" })
+	accounts!: AccountResponseDto[];
+}
+
+// ─── Paginated list response DTOs ────────────────────────────────────
+
+export class AccountsListDataDto {
+	@ApiPropertyOptional({
+		type: [AccountResponseDto],
+		description: "Flat list of accounts (omitted when groupedBy is set)",
+	})
+	accounts?: AccountResponseDto[];
+
+	@ApiPropertyOptional({
+		type: [AccountGroupDto],
+		description: "Accounts grouped by bank or type (only when groupedBy is set)",
+	})
+	groupedAccounts?: AccountGroupDto[];
+
+	@ApiPropertyOptional({
+		type: AccountsInfoDto,
+		description: "Financial summary (only when info=true)",
+	})
+	info?: AccountsInfoDto;
+
+	@ApiProperty({ example: 1, description: "Current page number" })
+	page!: number;
+
+	@ApiProperty({ example: 10, description: "Items per page" })
+	perPage!: number;
+
+	@ApiProperty({ example: 1, description: "Total matching items across all pages" })
+	total!: number;
+
+	@ApiProperty({ example: 1, description: "Total pages (ceil(total / perPage))" })
+	totalPages!: number;
+}
+
+// ─── Query DTO ───────────────────────────────────────────────────────
+
 export class QueryAccountsDto {
 	@ApiPropertyOptional({
 		enum: AccountType,
@@ -150,6 +229,14 @@ export class QueryAccountsDto {
 	@IsOptional()
 	@IsString()
 	bankId?: string;
+
+	@ApiPropertyOptional({
+		example: "checking",
+		description: "Case-insensitive search by account name (substring match)",
+	})
+	@IsOptional()
+	@IsString()
+	search?: string;
 
 	@ApiPropertyOptional({
 		example: "true",
@@ -178,4 +265,49 @@ export class QueryAccountsDto {
 	@IsOptional()
 	@IsEnum(SortOrder)
 	order?: SortOrder;
+
+	@ApiPropertyOptional({
+		example: 1,
+		default: 1,
+		minimum: 1,
+		description: "Page number (1-based)",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	page?: number;
+
+	@ApiPropertyOptional({
+		example: 10,
+		default: 10,
+		minimum: 1,
+		maximum: 100,
+		description: "Items per page",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	perPage?: number;
+
+	@ApiPropertyOptional({
+		example: "true",
+		default: "false",
+		description: 'Include financial info summary in the response (accepts "true"/"false")',
+	})
+	@IsOptional()
+	@IsBooleanString()
+	info?: string;
+
+	@ApiPropertyOptional({
+		enum: GroupBy,
+		example: "banks",
+		description:
+			'Group accounts by bank ("banks") or account type ("types"). When set, returns groupedAccounts instead of accounts.',
+	})
+	@IsOptional()
+	@IsEnum(GroupBy)
+	groupedBy?: GroupBy;
 }

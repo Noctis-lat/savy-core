@@ -1,10 +1,10 @@
 import { Injectable, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
 import { toCents } from "../common/utils/money.util";
+import type { Period } from "../common/utils/period.util";
+import { computePeriodRange, PERIODS } from "../common/utils/period.util";
 import { PrismaService } from "../prisma/prisma.service";
 import type { BankKpis } from "./dto/bank.dto";
 import { CreateBankDto, UpdateBankDto } from "./dto/bank.dto";
-import type { BankPeriod } from "./utils/period.util";
-import { BANK_PERIODS, computePeriodRange } from "./utils/period.util";
 
 interface AccountWithLoan {
 	id: string;
@@ -90,7 +90,7 @@ export class BanksService {
 	// ─── Income vs Expenses ────────────────────────────────────────────
 
 	async getIncomeVsExpenses(id: string, profileId: string, period: string) {
-		if (!BANK_PERIODS.includes(period as BankPeriod)) {
+		if (!PERIODS.includes(period as Period)) {
 			throw new UnprocessableEntityException("Invalid period value");
 		}
 

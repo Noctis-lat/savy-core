@@ -1,6 +1,6 @@
-import { SPANISH_MONTHS } from "../../common/utils/date-labels";
+import { SPANISH_MONTHS } from "./date-labels";
 
-export const BANK_PERIODS = [
+export const PERIODS = [
 	"day",
 	"week",
 	"month",
@@ -10,7 +10,7 @@ export const BANK_PERIODS = [
 	"year",
 ] as const;
 
-export type BankPeriod = (typeof BANK_PERIODS)[number];
+export type Period = (typeof PERIODS)[number];
 
 export interface PeriodRange {
 	start: Date;
