@@ -1,10 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import type { Transaction } from "../../generated/prisma/client";
 
 // ─── Types (for code consumers) ───────────────────────────────────────
 
 export type AccountDistributionType = "DEBIT" | "CREDIT" | "LOAN" | "CASH";
-export type TransactionKind = "INCOME" | "EXPENSE" | "TRANSFER" | "PAYMENT";
-
 export interface NetWorthSummary {
 	total: number;
 	assets: number;
@@ -18,16 +17,6 @@ export interface AccountDistribution {
 	count: number;
 	totalBalance: number;
 	percentage: number;
-}
-
-export interface RecentTransaction {
-	id: string;
-	type: TransactionKind;
-	amount: number;
-	description: string | null;
-	date: string;
-	accountName: string;
-	categoryName: string | null;
 }
 
 export interface ActiveBudget {
@@ -81,7 +70,7 @@ export interface BankSummary {
 export interface DashboardSummary {
 	netWorth: NetWorthSummary;
 	accountsDistribution: AccountDistribution[];
-	recentTransactions: RecentTransaction[];
+	recentTransactions: Transaction[];
 	activeBudgets: ActiveBudget[];
 	savingsGoals: SavingsGoalSummary[];
 	creditOverview: CreditOverview;
@@ -132,12 +121,21 @@ class AccountDistributionDto implements AccountDistribution {
 	percentage!: number;
 }
 
-class RecentTransactionDto implements RecentTransaction {
-	@ApiProperty({ example: "tx-uuid", description: "Transaction ID" })
+class RecentTransactionDto {
+	@ApiProperty({ example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890", description: "Transaction ID" })
 	id!: string;
 
+	@ApiProperty({ example: "account-uuid", description: "Source account ID" })
+	accountId!: string;
+
+	@ApiPropertyOptional({ example: "destination-uuid", description: "Destination account ID (transfers/payments) or null" })
+	destinationAccountId!: string | null;
+
+	@ApiPropertyOptional({ example: "category-uuid", description: "Category ID or null" })
+	categoryId!: string | null;
+
 	@ApiProperty({ enum: ["INCOME", "EXPENSE", "TRANSFER", "PAYMENT"], example: "EXPENSE" })
-	type!: TransactionKind;
+	type!: string;
 
 	@ApiProperty({ example: 1500, description: "Transaction amount" })
 	amount!: number;
@@ -145,14 +143,17 @@ class RecentTransactionDto implements RecentTransaction {
 	@ApiPropertyOptional({ example: "Grocery shopping", description: "Description (may be null)" })
 	description!: string | null;
 
-	@ApiProperty({ example: "2026-07-29T12:00:00.000Z", description: "Transaction date (ISO)" })
+	@ApiPropertyOptional({ example: "Weekly groceries at Walmart", description: "Additional note (may be null)" })
+	note!: string | null;
+
+	@ApiProperty({ example: "2026-07-28T12:00:00.000Z", description: "Transaction date (ISO)" })
 	date!: string;
 
-	@ApiProperty({ example: "Checking Account", description: "Name of the source account" })
-	accountName!: string;
+	@ApiProperty({ example: "2026-07-28T12:00:00.000Z", description: "Creation timestamp (ISO)" })
+	createdAt!: string;
 
-	@ApiPropertyOptional({ example: "Groceries", description: "Category name (may be null)" })
-	categoryName!: string | null;
+	@ApiProperty({ example: "2026-07-28T12:00:00.000Z", description: "Last update timestamp (ISO)" })
+	updatedAt!: string;
 }
 
 class ActiveBudgetDto implements ActiveBudget {
@@ -269,7 +270,7 @@ class BankSummaryDto implements BankSummary {
 	accountCount!: number;
 }
 
-export class DashboardSummaryDto implements DashboardSummary {
+export class DashboardSummaryDto {
 	@ApiProperty({ type: NetWorthSummaryDto, description: "Net worth summary" })
 	netWorth!: NetWorthSummaryDto;
 

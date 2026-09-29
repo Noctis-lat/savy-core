@@ -20,9 +20,7 @@ import type {
 	DashboardSummary,
 	LoanSummary,
 	NetWorthSummary,
-	RecentTransaction,
 	SavingsGoalSummary,
-	TransactionKind,
 } from "./dto/dashboard.dto";
 
 const ASSET_TYPES: AccountType[] = ["DEBIT", "CASH"];
@@ -86,7 +84,7 @@ export class DashboardService {
 		};
 	}
 
-	private async fetchRecentTransactions(profileId: string): Promise<RecentTransaction[]> {
+	private async fetchRecentTransactions(profileId: string): Promise<Transaction[]> {
 		const accountIds = await this.prisma.account
 			.findMany({ where: { profileId }, select: { id: true } })
 			.then((rows) => rows.map((r) => r.id));
@@ -95,34 +93,11 @@ export class DashboardService {
 			return [];
 		}
 
-		const transactions = await this.prisma.transaction.findMany({
+		return this.prisma.transaction.findMany({
 			where: { accountId: { in: accountIds } },
 			orderBy: { date: "desc" },
 			take: 5,
-			include: {
-				account: { select: { name: true } },
-				category: { select: { name: true } },
-			},
 		});
-
-		return transactions.map((t) => this.mapRecentTransaction(t));
-	}
-
-	private mapRecentTransaction(
-		t: Transaction & {
-			account: { name: string };
-			category: { name: string } | null;
-		},
-	): RecentTransaction {
-		return {
-			id: t.id,
-			type: t.type as TransactionKind,
-			amount: Number(t.amount),
-			description: t.description,
-			date: t.date.toISOString(),
-			accountName: t.account.name,
-			categoryName: t.category?.name ?? null,
-		};
 	}
 
 	private computeNetWorth(accounts: Account[], currency: string): NetWorthSummary {
