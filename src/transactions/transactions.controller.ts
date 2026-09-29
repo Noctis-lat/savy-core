@@ -20,6 +20,7 @@ import {
 	CreateTransactionDto,
 	QueryTransactionsDto,
 	TransactionResponseDto,
+	TransactionsInfoDto,
 	UpdateTransactionDto,
 } from "./dto/transaction.dto";
 import { TransactionsService } from "./transactions.service";
@@ -65,10 +66,23 @@ export class TransactionsController {
 		required: false,
 		description: "Sort order (default desc)",
 	})
-	@ApiExtraModels(TransactionResponseDto, PaginationMetaDto)
+	@ApiQuery({
+		name: "info",
+		required: false,
+		description:
+			'Include financial info summary (netWorth, liquidity, debt) in the response (accepts "true"/"false")',
+	})
+	@ApiQuery({
+		name: "period",
+		enum: ["day", "week", "month", "other_month", "quarter", "semester", "year"],
+		required: false,
+		description:
+			"Filter transactions by period. When set, overrides from/to with the computed date range.",
+	})
+	@ApiExtraModels(TransactionResponseDto, TransactionsInfoDto, PaginationMetaDto)
 	@ApiResponse({
 		status: 200,
-		description: "Returns paginated transactions",
+		description: "Returns paginated transactions with optional financial info",
 		schema: {
 			type: "object",
 			properties: {
@@ -80,6 +94,10 @@ export class TransactionsController {
 							type: "array",
 							items: { $ref: getSchemaPath(TransactionResponseDto) },
 						},
+						info: {
+							$ref: getSchemaPath(TransactionsInfoDto),
+							description: "Financial summary (only when info=true)",
+						},
 						meta: { $ref: getSchemaPath(PaginationMetaDto) },
 					},
 				},
@@ -87,6 +105,7 @@ export class TransactionsController {
 			},
 		},
 	})
+	@ApiErrorResponse(422, "Invalid period value")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(500, "Internal server error")
 	async findAll(@CurrentUser() profile: Profile, @Query() query: QueryTransactionsDto) {
@@ -102,6 +121,8 @@ export class TransactionsController {
 			limit: query.limit,
 			sortBy: query.sortBy,
 			order: query.order,
+			includeInfo: query.info === "true",
+			period: query.period,
 		});
 	}
 

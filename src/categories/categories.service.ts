@@ -110,7 +110,7 @@ export class CategoriesService {
 
 	private async computeTopCategories(accountIds: string[], limit: number) {
 		if (accountIds.length === 0) {
-			return [];
+			return { totalExpenses: 0, categories: [] };
 		}
 
 		const transactions = await this.prisma.transaction.findMany({
@@ -140,17 +140,26 @@ export class CategoriesService {
 			categoryIds.length > 0
 				? await this.prisma.category.findMany({
 						where: { id: { in: categoryIds } },
-						select: { id: true, name: true },
 					})
 				: [];
-		const categoryNameById = new Map(categoryRows.map((c) => [c.id, c.name]));
+		const categoryById = new Map(categoryRows.map((c) => [c.id, c]));
 
-		return topEntries.map(([categoryId, amount]) => ({
-			categoryId,
-			categoryName: categoryNameById.get(categoryId) ?? "Unknown",
-			amount,
-			percentage: totalExpenses > 0 ? Math.round((amount / totalExpenses) * 100) : 0,
-		}));
+		const categories = topEntries.map(([categoryId, amount]) => {
+			const cat = categoryById.get(categoryId);
+			return {
+				id: cat?.id ?? categoryId,
+				profileId: cat?.profileId ?? "",
+				name: cat?.name ?? "Unknown",
+				type: cat?.type ?? "EXPENSE",
+				color: cat?.color ?? null,
+				icon: cat?.icon ?? null,
+				createdAt: cat?.createdAt ?? new Date(),
+				amount,
+				percentage: totalExpenses > 0 ? Math.round((amount / totalExpenses) * 100) : 0,
+			};
+		});
+
+		return { totalExpenses, categories };
 	}
 
 	private isUniqueConstraintError(error: unknown): boolean {

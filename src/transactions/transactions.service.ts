@@ -1,7 +1,27 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import type { Account, Prisma, Transaction, TransactionType } from "../generated/prisma/client";
+import {
+	BadRequestException,
+	Injectable,
+	NotFoundException,
+	UnprocessableEntityException,
+} from "@nestjs/common";
+import type { Period } from "../common/utils/period.util";
+import { computePeriodRange, PERIODS } from "../common/utils/period.util";
+import type {
+	Account,
+	AccountType,
+	Prisma,
+	Transaction,
+	TransactionType,
+} from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import type { TransactionsInfoDto } from "./dto/transaction.dto";
 import { CreateTransactionDto, UpdateTransactionDto } from "./dto/transaction.dto";
+
+/** Account types that represent money you HAVE (positive balance = asset). */
+const ASSET_TYPES: AccountType[] = ["DEBIT", "CASH"];
+
+/** Account types that represent money you OWE (positive balance = liability). */
+const LIABILITY_TYPES: AccountType[] = ["CREDIT", "LOAN"];
 
 @Injectable()
 export class TransactionsService {
@@ -21,14 +41,30 @@ export class TransactionsService {
 			limit?: number;
 			sortBy?: "date" | "amount" | "createdAt";
 			order?: "asc" | "desc";
+			includeInfo?: boolean;
+			period?: string;
 		},
 	): Promise<{
 		data: Transaction[];
+		info?: TransactionsInfoDto;
 		total: number;
 		page: number;
 		limit: number;
 		totalPages: number;
 	}> {
+		// Validate and resolve period (overrides from/to when provided)
+		let from = filters.from;
+		let to = filters.to;
+
+		if (filters.period) {
+			if (!PERIODS.includes(filters.period as Period)) {
+				throw new UnprocessableEntityException("Invalid period value");
+			}
+			const range = computePeriodRange(filters.period);
+			from = range.start;
+			to = range.end;
+		}
+
 		const page = filters.page ?? 1;
 		const limit = Math.min(filters.limit ?? 50, 100);
 		const skip = (page - 1) * limit;
@@ -71,18 +107,18 @@ export class TransactionsService {
 				filters.type ? { type: filters.type } : {},
 				filters.categoryId ? { categoryId: filters.categoryId } : {},
 				filters.search ? { description: { contains: filters.search, mode: "insensitive" } } : {},
-				filters.from || filters.to
+				from || to
 					? {
 							date: {
-								...(filters.from ? { gte: filters.from } : {}),
-								...(filters.to ? { lte: filters.to } : {}),
+								...(from ? { gte: from } : {}),
+								...(to ? { lte: to } : {}),
 							},
 						}
 					: {},
 			],
 		};
 
-		const [data, total] = await Promise.all([
+		const promises: [Promise<Transaction[]>, Promise<number>, Promise<TransactionsInfoDto | undefined>] = [
 			this.prisma.transaction.findMany({
 				where,
 				skip,
@@ -90,11 +126,27 @@ export class TransactionsService {
 				orderBy: { [sortBy]: order },
 			}),
 			this.prisma.transaction.count({ where }),
-		]);
+			filters.includeInfo ? this.computeFinancialInfo(profileId) : Promise.resolve(undefined),
+		];
+
+		const [data, total, info] = await Promise.all(promises);
 
 		const totalPages = limit > 0 ? Math.ceil(total / limit) : 0;
 
-		return { data, total, page, limit, totalPages };
+		const result: {
+			data: Transaction[];
+			info?: TransactionsInfoDto;
+			total: number;
+			page: number;
+			limit: number;
+			totalPages: number;
+		} = { data, total, page, limit, totalPages };
+
+		if (info) {
+			result.info = info;
+		}
+
+		return result;
 	}
 
 	async findOne(id: string, profileId: string): Promise<Transaction> {
@@ -229,6 +281,30 @@ export class TransactionsService {
 
 			await tx.transaction.delete({ where: { id } });
 		});
+	}
+
+	// ── Financial info ────────────────────────────────────────────────
+
+	private async computeFinancialInfo(profileId: string): Promise<TransactionsInfoDto> {
+		const aggregated = await this.prisma.account.groupBy({
+			by: ["type"],
+			where: { profileId, isActive: true },
+			_sum: { balance: true },
+		});
+
+		const sumFor = (types: AccountType[]): number =>
+			aggregated
+				.filter((row) => types.includes(row.type))
+				.reduce((acc, row) => acc + Number(row._sum.balance ?? 0), 0);
+
+		const assets = sumFor(ASSET_TYPES);
+		const liabilities = Math.abs(sumFor(LIABILITY_TYPES));
+
+		return {
+			netWorth: assets - liabilities,
+			liquidity: assets,
+			debt: liabilities,
+		};
 	}
 
 	// ── Balance helpers ────────────────────────────────────────────────

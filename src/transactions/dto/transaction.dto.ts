@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Type } from "class-transformer";
 import {
+	IsBooleanString,
 	IsDateString,
 	IsEnum,
 	IsInt,
@@ -11,6 +12,7 @@ import {
 	MaxLength,
 	Min,
 } from "class-validator";
+import { PERIODS } from "../../common/utils/period.util";
 
 enum TransactionType {
 	INCOME = "INCOME",
@@ -177,6 +179,17 @@ export class TransactionResponseDto {
 	updatedAt!: Date;
 }
 
+export class TransactionsInfoDto {
+	@ApiProperty({ example: 12500000, description: "Net worth (assets - liabilities)" })
+	netWorth!: number;
+
+	@ApiProperty({ example: 8000000, description: "Liquidity (DEBIT + CASH balances)" })
+	liquidity!: number;
+
+	@ApiProperty({ example: 5500000, description: "Debt (CREDIT + LOAN balances, positive value)" })
+	debt!: number;
+}
+
 export class QueryTransactionsDto {
 	@ApiPropertyOptional({
 		example: "account-uuid",
@@ -262,4 +275,24 @@ export class QueryTransactionsDto {
 	@IsOptional()
 	@IsEnum(SortOrder)
 	order?: SortOrder;
+
+	@ApiPropertyOptional({
+		example: "true",
+		default: "false",
+		description:
+			'Include financial info summary (netWorth, liquidity, debt) in the response (accepts "true"/"false")',
+	})
+	@IsOptional()
+	@IsBooleanString()
+	info?: string;
+
+	@ApiPropertyOptional({
+		enum: PERIODS,
+		default: "month",
+		description:
+			"Filter transactions by period. When set, overrides from/to with the computed date range. Defaults to all transactions if omitted.",
+	})
+	@IsOptional()
+	@IsString()
+	period?: string;
 }

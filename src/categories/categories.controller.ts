@@ -15,7 +15,10 @@ import {
 	QueryCategoriesDto,
 	UpdateCategoryDto,
 } from "./dto/category.dto";
-import { QueryTopCategoriesDto, TopCategoryResponseDto } from "./dto/top-category.dto";
+import {
+	QueryTopCategoriesDto,
+	TopCategoriesResponseDto,
+} from "./dto/top-category.dto";
 
 @ApiTags("categories")
 @ApiBearerAuth()
@@ -38,7 +41,7 @@ export class CategoriesController {
 
 	@Get("top/banks/:id")
 	@ApiOperation({ summary: "Get top expense categories for a bank" })
-	@ApiArraySuccessResponse(200, TopCategoryResponseDto, "Returns top categories by expense amount")
+	@ApiSuccessResponse(200, TopCategoriesResponseDto, "Returns top categories by expense amount")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Bank not found")
 	@ApiErrorResponse(500, "Internal server error")
@@ -52,7 +55,7 @@ export class CategoriesController {
 
 	@Get("top/accounts/:id")
 	@ApiOperation({ summary: "Get top expense categories for an account" })
-	@ApiArraySuccessResponse(200, TopCategoryResponseDto, "Returns top categories by expense amount")
+	@ApiSuccessResponse(200, TopCategoriesResponseDto, "Returns top categories by expense amount")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Account not found")
 	@ApiErrorResponse(500, "Internal server error")
