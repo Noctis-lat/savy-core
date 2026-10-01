@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, UnprocessableEntityException } from "@ne
 import { toCents } from "../common/utils/money.util";
 import type { Period } from "../common/utils/period.util";
 import { computePeriodRange, PERIODS } from "../common/utils/period.util";
+import type { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import type { BankKpis } from "./dto/bank.dto";
 import { CreateBankDto, UpdateBankDto } from "./dto/bank.dto";
@@ -11,6 +12,15 @@ interface AccountWithLoan {
 	balance: { toString(): string };
 	type: string;
 	loan?: { remaining: { toString(): string } } | null;
+}
+
+export interface BanksListResult {
+	banks: Array<Record<string, unknown>>;
+	info?: BankKpis;
+	page: number;
+	perPage: number;
+	total: number;
+	totalPages: number;
 }
 
 @Injectable()
@@ -25,36 +35,61 @@ export class BanksService {
 			isActive?: boolean;
 			sortBy?: "name" | "createdAt";
 			order?: "asc" | "desc";
+			page?: number;
+			perPage?: number;
 			withInfo?: boolean;
+			search?: string;
 		},
-	) {
+	): Promise<BanksListResult> {
 		const sortBy = filters?.sortBy ?? "name";
 		const order = filters?.order ?? "asc";
 		const isActive = filters?.isActive === undefined ? true : filters.isActive;
 		const withInfo = filters?.withInfo ?? false;
+		const page = filters?.page ?? 1;
+		const perPage = filters?.perPage ?? 10;
 
-		if (!withInfo) {
-			return this.prisma.bank.findMany({
-				where: { profileId, isActive },
+		const where: Prisma.BankWhereInput = {
+			profileId,
+			isActive,
+			...(filters?.search ? { name: { contains: filters.search, mode: "insensitive" } } : {}),
+		};
+
+		const [banks, total] = await Promise.all([
+			this.prisma.bank.findMany({
+				where,
 				orderBy: { [sortBy]: order },
-			});
-		}
+				skip: (page - 1) * perPage,
+				take: perPage,
+				...(withInfo
+					? {
+							include: {
+								accounts: {
+									where: { isActive: true },
+									include: { loan: true },
+								},
+							},
+						}
+					: {}),
+			}),
+			this.prisma.bank.count({ where }),
+		]);
 
-		const banks = await this.prisma.bank.findMany({
-			where: { profileId, isActive },
-			orderBy: { [sortBy]: order },
-			include: {
-				accounts: {
-					where: { isActive: true },
-					include: { loan: true },
-				},
-			},
-		});
+		const result: BanksListResult = {
+			banks: withInfo
+				? banks.map((bank) => {
+						const { accounts, ...bankData } = bank as typeof bank & {
+							accounts: AccountWithLoan[];
+						};
+						return { ...bankData, info: this.computeBankKpis(accounts) };
+					})
+				: banks,
+			page,
+			perPage,
+			total,
+			totalPages: Math.ceil(total / perPage) || 1,
+		};
 
-		return banks.map((bank) => {
-			const { accounts, ...bankData } = bank;
-			return { ...bankData, info: this.computeBankKpis(accounts) };
-		});
+		return result;
 	}
 
 	// ─── Detail ────────────────────────────────────────────────────────
@@ -238,17 +273,9 @@ export class BanksService {
 		let netWorth = 0;
 		let liquidity = 0;
 		let debt = 0;
-		let assets = 0;
-		let liabilities = 0;
 
 		for (const account of accounts) {
 			const balanceCents = toCents(account.balance);
-
-			if (balanceCents > 0) {
-				assets += balanceCents;
-			} else if (balanceCents < 0) {
-				liabilities += Math.abs(balanceCents);
-			}
 
 			if (account.type === "DEBIT" || account.type === "CASH") {
 				netWorth += balanceCents;
@@ -262,11 +289,10 @@ export class BanksService {
 				const remainingCents = account.loan ? toCents(account.loan.remaining) : 0;
 				netWorth += -remainingCents;
 				debt += remainingCents;
-				liabilities += remainingCents;
 			}
 		}
 
-		return { netWorth, liquidity, debt, balanceBreakdown: { assets, liabilities } };
+		return { netWorth, liquidity, debt };
 	}
 
 	private async findOneBasic(id: string, profileId: string) {

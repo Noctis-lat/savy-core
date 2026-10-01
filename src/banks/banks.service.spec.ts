@@ -17,10 +17,12 @@ const D = (n: number): { toString(): string; valueOf(): number } => ({
 
 describe("BanksService (findAll filters)", () => {
 	let service: BanksService;
-	let prisma: { bank: { findMany: jest.Mock } };
+	let prisma: { bank: { findMany: jest.Mock; count: jest.Mock } };
 
 	beforeEach(async () => {
-		prisma = { bank: { findMany: jest.fn().mockResolvedValue([]) } };
+		prisma = {
+			bank: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+		};
 		const module: TestingModule = await Test.createTestingModule({
 			providers: [BanksService, { provide: PrismaService, useValue: prisma }],
 		}).compile();
@@ -60,15 +62,31 @@ describe("BanksService (findAll filters)", () => {
 				accounts: [makeAccount({ type: "DEBIT", balance: D(1000) })],
 			},
 		]);
-		const result = (await service.findAllByProfile("p1", { withInfo: true })) as Array<
-			Record<string, unknown>
-		>;
+		prisma.bank.count.mockResolvedValue(1);
+		const result = await service.findAllByProfile("p1", { withInfo: true });
 		const call = prisma.bank.findMany.mock.calls[0][0];
 		expect(call.include).toBeDefined();
 		expect(call.include.accounts).toBeDefined();
-		expect(result[0].info).toBeDefined();
-		const info = result[0].info as Record<string, unknown>;
+		const bankWithInfo = result.banks[0] as Record<string, unknown>;
+		expect(bankWithInfo.info).toBeDefined();
+		const info = bankWithInfo.info as Record<string, unknown>;
 		expect(info.liquidity).toBe(100000);
+	});
+
+	it("returns pagination metadata", async () => {
+		prisma.bank.findMany.mockResolvedValue([makeBank()]);
+		prisma.bank.count.mockResolvedValue(15);
+		const result = await service.findAllByProfile("p1", { page: 2, perPage: 5 });
+		expect(result.page).toBe(2);
+		expect(result.perPage).toBe(5);
+		expect(result.total).toBe(15);
+		expect(result.totalPages).toBe(3);
+	});
+
+	it("applies search filter on bank name", async () => {
+		await service.findAllByProfile("p1", { search: "BBV" });
+		const call = prisma.bank.findMany.mock.calls[0][0];
+		expect(call.where.name).toEqual({ contains: "BBV", mode: "insensitive" });
 	});
 });
 
@@ -210,7 +228,6 @@ describe("BanksService.findOne", () => {
 		expect(info.netWorth).toBe(0);
 		expect(info.liquidity).toBe(0);
 		expect(info.debt).toBe(0);
-		expect(info.balanceBreakdown).toEqual({ assets: 0, liabilities: 0 });
 	});
 });
 

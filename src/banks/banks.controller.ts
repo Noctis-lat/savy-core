@@ -1,5 +1,12 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
-import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import {
+	ApiBearerAuth,
+	ApiExtraModels,
+	ApiOperation,
+	ApiResponse,
+	ApiTags,
+	getSchemaPath,
+} from "@nestjs/swagger";
 import { AccountResponseDto } from "../accounts/dto/account.dto";
 import { CurrentUser } from "../auth/current-user.decorator";
 import {
@@ -10,7 +17,14 @@ import {
 } from "../common/decorators/api-response.decorator";
 import type { Profile } from "../generated/prisma/client";
 import { BanksService } from "./banks.service";
-import { BankResponseDto, CreateBankDto, QueryBanksDto, UpdateBankDto } from "./dto/bank.dto";
+import {
+	BankInfoDto,
+	BankResponseDto,
+	BanksListDataDto,
+	CreateBankDto,
+	QueryBanksDto,
+	UpdateBankDto,
+} from "./dto/bank.dto";
 import { BankCreditCardResponseDto, BankLoanResponseDto } from "./dto/bank-sub-resources.dto";
 import {
 	IncomeVsExpensesResponseDto,
@@ -25,9 +39,21 @@ export class BanksController {
 
 	@Get()
 	@ApiOperation({
-		summary: "List all banks for the current user with optional filters and KPIs",
+		summary: "List all banks for the current user with pagination and optional financial info",
 	})
-	@ApiArraySuccessResponse(200, BankResponseDto, "Returns array of banks")
+	@ApiExtraModels(BanksListDataDto, BankResponseDto, BankInfoDto)
+	@ApiResponse({
+		status: 200,
+		description: "Returns paginated banks with optional financial info",
+		schema: {
+			type: "object",
+			properties: {
+				success: { type: "boolean", example: true },
+				data: { $ref: getSchemaPath(BanksListDataDto) },
+				message: { type: "string", nullable: true },
+			},
+		},
+	})
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(500, "Internal server error")
 	async findAll(@CurrentUser() profile: Profile, @Query() query: QueryBanksDto) {
@@ -35,7 +61,10 @@ export class BanksController {
 			isActive: query.isActive === undefined ? undefined : query.isActive === "true",
 			sortBy: query.sortBy,
 			order: query.order,
+			page: query.page,
+			perPage: query.perPage,
 			withInfo: query.info === "true",
+			search: query.search,
 		});
 	}
 

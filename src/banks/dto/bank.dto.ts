@@ -1,11 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { Type } from "class-transformer";
 import {
 	IsBooleanString,
 	IsEnum,
+	IsInt,
 	IsNotEmpty,
 	IsOptional,
 	IsString,
+	Max,
 	MaxLength,
+	Min,
 } from "class-validator";
 
 enum BankSortBy {
@@ -24,21 +28,6 @@ export interface BankKpis {
 	netWorth: number;
 	liquidity: number;
 	debt: number;
-	balanceBreakdown: { assets: number; liabilities: number };
-}
-
-export class BalanceBreakdownDto {
-	@ApiProperty({
-		example: 18000000,
-		description: "Total assets in integer cents (positive balances across all accounts)",
-	})
-	assets!: number;
-
-	@ApiProperty({
-		example: 5500000,
-		description: "Total liabilities in integer cents (negative balances + loan remaining)",
-	})
-	liabilities!: number;
 }
 
 export class BankInfoDto {
@@ -59,9 +48,6 @@ export class BankInfoDto {
 		description: "Total debt in integer cents (credit utilized + loan remaining)",
 	})
 	debt!: number;
-
-	@ApiProperty({ type: BalanceBreakdownDto, description: "Balance breakdown in cents" })
-	balanceBreakdown!: BalanceBreakdownDto;
 }
 
 export class CreateBankDto {
@@ -141,6 +127,33 @@ export class BankResponseDto {
 	info?: BankInfoDto;
 }
 
+// ─── Paginated list response DTOs ────────────────────────────────────
+
+export class BanksListDataDto {
+	@ApiProperty({ type: [BankResponseDto], description: "List of banks for the current page" })
+	banks!: BankResponseDto[];
+
+	@ApiPropertyOptional({
+		type: BankInfoDto,
+		description: "Financial summary (only when info=true)",
+	})
+	info?: BankInfoDto;
+
+	@ApiProperty({ example: 1, description: "Current page number" })
+	page!: number;
+
+	@ApiProperty({ example: 10, description: "Items per page" })
+	perPage!: number;
+
+	@ApiProperty({ example: 1, description: "Total matching items across all pages" })
+	total!: number;
+
+	@ApiProperty({ example: 1, description: "Total pages (ceil(total / perPage))" })
+	totalPages!: number;
+}
+
+// ─── Query DTO ───────────────────────────────────────────────────────
+
 export class QueryBanksDto {
 	@ApiPropertyOptional({
 		example: "true",
@@ -149,6 +162,14 @@ export class QueryBanksDto {
 	@IsOptional()
 	@IsBooleanString()
 	isActive?: string;
+
+	@ApiPropertyOptional({
+		example: "BBVA",
+		description: "Case-insensitive search by bank name (substring match)",
+	})
+	@IsOptional()
+	@IsString()
+	search?: string;
 
 	@ApiPropertyOptional({
 		enum: BankSortBy,
@@ -169,6 +190,32 @@ export class QueryBanksDto {
 	@IsOptional()
 	@IsEnum(SortOrder)
 	order?: SortOrder;
+
+	@ApiPropertyOptional({
+		example: 1,
+		default: 1,
+		minimum: 1,
+		description: "Page number (1-based)",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	page?: number;
+
+	@ApiPropertyOptional({
+		example: 10,
+		default: 10,
+		minimum: 1,
+		maximum: 100,
+		description: "Items per page",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	perPage?: number;
 
 	@ApiPropertyOptional({
 		example: "true",
