@@ -4,7 +4,7 @@ import type { Period } from "../common/utils/period.util";
 import { computePeriodRange, PERIODS } from "../common/utils/period.util";
 import type { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import type { BankKpis } from "./dto/bank.dto";
+import type { BankDetailKpis, BankKpis } from "./dto/bank.dto";
 import { CreateBankDto, UpdateBankDto } from "./dto/bank.dto";
 
 interface AccountWithLoan {
@@ -105,7 +105,7 @@ export class BanksService {
 		}
 
 		const { accounts, ...bankData } = bank;
-		return { ...bankData, info: this.computeBankKpis(accounts) };
+		return { ...bankData, info: this.computeBankDetailKpis(accounts) };
 	}
 
 	// ─── Income vs Expenses ────────────────────────────────────────────
@@ -279,6 +279,28 @@ export class BanksService {
 		}
 
 		return { netWorth, liquidity, debt };
+	}
+
+	private computeBankDetailKpis(accounts: AccountWithLoan[]): BankDetailKpis {
+		let assets = 0;
+		let liabilities = 0;
+		const base = this.computeBankKpis(accounts);
+
+		for (const account of accounts) {
+			const balance = Number(account.balance);
+
+			if (balance > 0) {
+				assets += balance;
+			} else if (balance < 0) {
+				liabilities += Math.abs(balance);
+			}
+
+			if (account.type === "LOAN" && account.loan) {
+				liabilities += Number(account.loan.remaining);
+			}
+		}
+
+		return { ...base, balanceBreakdown: { assets, liabilities } };
 	}
 
 	/**

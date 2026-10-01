@@ -197,6 +197,7 @@ describe("BanksService.findOne", () => {
 		expect(info.liquidity).toBe(1500);
 		expect(info.debt).toBe(500);
 		expect(info.netWorth).toBe(1500 - 500);
+		expect(info.balanceBreakdown).toEqual({ assets: 1500, liabilities: 500 });
 	});
 
 	it("computes KPIs correctly with mixed account types", async () => {
@@ -220,6 +221,8 @@ describe("BanksService.findOne", () => {
 		expect(info.netWorth).toBe(1500 - 500 - 100000 + 300);
 		expect(info.liquidity).toBe(1500 + 300);
 		expect(info.debt).toBe(500 + 100000);
+		// assets: DEBIT 1500 + CASH 300 = 1800; liabilities: CREDIT 500 + LOAN balance 2000 + loan remaining 100000
+		expect(info.balanceBreakdown).toEqual({ assets: 1800, liabilities: 2500 + 100000 });
 	});
 
 	it("handles empty accounts gracefully with info=true", async () => {
@@ -229,6 +232,7 @@ describe("BanksService.findOne", () => {
 		expect(info.netWorth).toBe(0);
 		expect(info.liquidity).toBe(0);
 		expect(info.debt).toBe(0);
+		expect(info.balanceBreakdown).toEqual({ assets: 0, liabilities: 0 });
 	});
 });
 
