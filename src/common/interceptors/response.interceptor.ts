@@ -14,10 +14,44 @@ export interface ApiResponse<T> {
 }
 
 /**
- * Global response interceptor — wraps ALL successful responses in a standard envelope.
+ * Detect Prisma Decimal (decimal.js) instances.
+ * They have a `d` property (digits array) and `toFixed`/`toNumber` methods.
+ */
+function isDecimal(value: unknown): value is { toNumber(): number } {
+	return (
+		value !== null &&
+		typeof value === "object" &&
+		"d" in (value as Record<string, unknown>) &&
+		"toNumber" in (value as Record<string, unknown>) &&
+		typeof (value as { toNumber: unknown }).toNumber === "function"
+	);
+}
+
+/**
+ * Recursively convert all Prisma Decimal values to numbers.
+ * Handles nested objects, arrays, and Date instances (left untouched).
+ */
+function serializeDecimals<T>(data: T): T {
+	if (data === null || data === undefined) return data;
+	if (isDecimal(data)) return data.toNumber() as T;
+	if (data instanceof Date) return data;
+	if (Array.isArray(data)) return data.map(serializeDecimals) as T;
+	if (typeof data === "object") {
+		const result: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(data)) {
+			result[key] = serializeDecimals(value);
+		}
+		return result as T;
+	}
+	return data;
+}
+
+/**
+ * Global response interceptor — wraps ALL successful responses in a standard envelope
+ * and converts Prisma Decimal fields to numbers.
  *
- * Before: controller returns `{ id, name, balance }` or `[{ id, ... }, ...]`
- * After:  client receives `{ success: true, data: { id, name, balance }, message: undefined }`
+ * Before: controller returns `{ id, name, balance: Decimal("1200000") }`
+ * After:  client receives `{ success: true, data: { id, name, balance: 1200000 } }`
  *
  * If the controller already returns `{ message: "..." }` (e.g. logout, delete),
  * the message is extracted and the remaining data is placed in `data`.
@@ -29,24 +63,26 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResponse<T>
 	intercept(context: ExecutionContext, next: CallHandler): Observable<ApiResponse<T>> {
 		return next.handle().pipe(
 			map((responseData) => {
+				const serialized = serializeDecimals(responseData);
+
 				// If the controller returned an object with only a `message` field,
 				// treat it as a message-only response (e.g. { message: "Logged out" })
 				if (
-					responseData &&
-					typeof responseData === "object" &&
-					"message" in responseData &&
-					Object.keys(responseData).length === 1
+					serialized &&
+					typeof serialized === "object" &&
+					"message" in serialized &&
+					Object.keys(serialized).length === 1
 				) {
 					return {
 						success: true,
 						data: null as T,
-						message: responseData.message,
+						message: (serialized as Record<string, unknown>).message as string,
 					};
 				}
 
 				return {
 					success: true,
-					data: responseData,
+					data: serialized,
 				};
 			}),
 		);
