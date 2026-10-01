@@ -67,9 +67,9 @@ describe("BanksService (findAll filters)", () => {
 		]);
 		const result = await service.findAllByProfile("p1", { withInfo: true });
 		expect(result.info).toBeDefined();
-		expect(result.info!.liquidity).toBe(100000);
-		expect(result.info!.debt).toBe(50000);
-		expect(result.info!.netWorth).toBe(100000 - 50000);
+		expect(result.info!.liquidity).toBe(1000);
+		expect(result.info!.debt).toBe(500);
+		expect(result.info!.netWorth).toBe(1000 - 500);
 		// banks should NOT have per-bank info
 		expect((result.banks[0] as Record<string, unknown>).info).toBeUndefined();
 	});
@@ -194,9 +194,9 @@ describe("BanksService.findOne", () => {
 		const result = (await service.findOne("bank-1", "p1", true)) as Record<string, unknown>;
 		expect(result.info).toBeDefined();
 		const info = result.info as Record<string, unknown>;
-		expect(info.liquidity).toBe(150000);
-		expect(info.debt).toBe(50000);
-		expect(info.netWorth).toBe(150000 - 50000);
+		expect(info.liquidity).toBe(1500);
+		expect(info.debt).toBe(500);
+		expect(info.netWorth).toBe(1500 - 500);
 	});
 
 	it("computes KPIs correctly with mixed account types", async () => {
@@ -217,9 +217,9 @@ describe("BanksService.findOne", () => {
 		);
 		const result = (await service.findOne("bank-1", "p1", true)) as Record<string, unknown>;
 		const info = result.info as Record<string, unknown>;
-		expect(info.netWorth).toBe(150000 - 50000 - 10000000 + 30000);
-		expect(info.liquidity).toBe(150000 + 30000);
-		expect(info.debt).toBe(50000 + 10000000);
+		expect(info.netWorth).toBe(1500 - 500 - 100000 + 300);
+		expect(info.liquidity).toBe(1500 + 300);
+		expect(info.debt).toBe(500 + 100000);
 	});
 
 	it("handles empty accounts gracefully with info=true", async () => {

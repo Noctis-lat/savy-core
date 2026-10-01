@@ -261,20 +261,20 @@ export class BanksService {
 		let debt = 0;
 
 		for (const account of accounts) {
-			const balanceCents = toCents(account.balance);
+			const balance = Number(account.balance);
 
 			if (account.type === "DEBIT" || account.type === "CASH") {
-				netWorth += balanceCents;
-				if (balanceCents > 0) {
-					liquidity += balanceCents;
+				netWorth += balance;
+				if (balance > 0) {
+					liquidity += balance;
 				}
 			} else if (account.type === "CREDIT") {
-				netWorth += -Math.abs(balanceCents);
-				debt += Math.abs(balanceCents);
+				netWorth += -Math.abs(balance);
+				debt += Math.abs(balance);
 			} else if (account.type === "LOAN") {
-				const remainingCents = account.loan ? toCents(account.loan.remaining) : 0;
-				netWorth += -remainingCents;
-				debt += remainingCents;
+				const remaining = account.loan ? Number(account.loan.remaining) : 0;
+				netWorth += -remaining;
+				debt += remaining;
 			}
 		}
 
