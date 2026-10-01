@@ -17,11 +17,15 @@ const D = (n: number): { toString(): string; valueOf(): number } => ({
 
 describe("BanksService (findAll filters)", () => {
 	let service: BanksService;
-	let prisma: { bank: { findMany: jest.Mock; count: jest.Mock } };
+	let prisma: {
+		bank: { findMany: jest.Mock; count: jest.Mock };
+		account: { findMany: jest.Mock };
+	};
 
 	beforeEach(async () => {
 		prisma = {
 			bank: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+			account: { findMany: jest.fn().mockResolvedValue([]) },
 		};
 		const module: TestingModule = await Test.createTestingModule({
 			providers: [BanksService, { provide: PrismaService, useValue: prisma }],
@@ -54,23 +58,20 @@ describe("BanksService (findAll filters)", () => {
 		expect(call.include).toBeUndefined();
 	});
 
-	it("includes accounts with loan when withInfo=true", async () => {
-		prisma.bank.findMany.mockResolvedValue([
-			{
-				id: "b1",
-				name: "BBVA",
-				accounts: [makeAccount({ type: "DEBIT", balance: D(1000) })],
-			},
-		]);
+	it("returns global info when withInfo=true", async () => {
+		prisma.bank.findMany.mockResolvedValue([{ id: "b1", name: "BBVA" }]);
 		prisma.bank.count.mockResolvedValue(1);
+		prisma.account.findMany.mockResolvedValue([
+			makeAccount({ type: "DEBIT", balance: D(1000) }),
+			makeAccount({ id: "a2", type: "CREDIT", balance: D(-500) }),
+		]);
 		const result = await service.findAllByProfile("p1", { withInfo: true });
-		const call = prisma.bank.findMany.mock.calls[0][0];
-		expect(call.include).toBeDefined();
-		expect(call.include.accounts).toBeDefined();
-		const bankWithInfo = result.banks[0] as Record<string, unknown>;
-		expect(bankWithInfo.info).toBeDefined();
-		const info = bankWithInfo.info as Record<string, unknown>;
-		expect(info.liquidity).toBe(100000);
+		expect(result.info).toBeDefined();
+		expect(result.info!.liquidity).toBe(100000);
+		expect(result.info!.debt).toBe(50000);
+		expect(result.info!.netWorth).toBe(100000 - 50000);
+		// banks should NOT have per-bank info
+		expect((result.banks[0] as Record<string, unknown>).info).toBeUndefined();
 	});
 
 	it("returns pagination metadata", async () => {

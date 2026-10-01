@@ -8,7 +8,6 @@ import type { BankKpis } from "./dto/bank.dto";
 import { CreateBankDto, UpdateBankDto } from "./dto/bank.dto";
 
 interface AccountWithLoan {
-	id: string;
 	balance: { toString(): string };
 	type: string;
 	loan?: { remaining: { toString(): string } } | null;
@@ -60,34 +59,21 @@ export class BanksService {
 				orderBy: { [sortBy]: order },
 				skip: (page - 1) * perPage,
 				take: perPage,
-				...(withInfo
-					? {
-							include: {
-								accounts: {
-									where: { isActive: true },
-									include: { loan: true },
-								},
-							},
-						}
-					: {}),
 			}),
 			this.prisma.bank.count({ where }),
 		]);
 
 		const result: BanksListResult = {
-			banks: withInfo
-				? banks.map((bank) => {
-						const { accounts, ...bankData } = bank as typeof bank & {
-							accounts: AccountWithLoan[];
-						};
-						return { ...bankData, info: this.computeBankKpis(accounts) };
-					})
-				: banks,
+			banks,
 			page,
 			perPage,
 			total,
 			totalPages: Math.ceil(total / perPage) || 1,
 		};
+
+		if (withInfo) {
+			result.info = await this.computeGlobalBankInfo(profileId);
+		}
 
 		return result;
 	}
@@ -293,6 +279,19 @@ export class BanksService {
 		}
 
 		return { netWorth, liquidity, debt };
+	}
+
+	/**
+	 * Global financial summary across ALL active accounts that belong to ANY bank for the profile.
+	 * Ignores pagination/search filters — always reflects the full bank-linked financial picture.
+	 */
+	private async computeGlobalBankInfo(profileId: string): Promise<BankKpis> {
+		const accounts = await this.prisma.account.findMany({
+			where: { profileId, isActive: true, bankId: { not: null } },
+			select: { type: true, balance: true, loan: { select: { remaining: true } } },
+		});
+
+		return this.computeBankKpis(accounts);
 	}
 
 	private async findOneBasic(id: string, profileId: string) {
