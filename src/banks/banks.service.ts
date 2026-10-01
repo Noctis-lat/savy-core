@@ -1,5 +1,4 @@
 import { Injectable, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
-import { toCents } from "../common/utils/money.util";
 import type { Period } from "../common/utils/period.util";
 import { computePeriodRange, PERIODS } from "../common/utils/period.util";
 import type { Prisma } from "../generated/prisma/client";
@@ -147,11 +146,11 @@ export class BanksService {
 		let expenses = 0;
 
 		for (const t of transactions) {
-			const cents = toCents(t.amount);
+			const amount = Number(t.amount);
 			if (t.type === "INCOME") {
-				income += cents;
+				income += amount;
 			} else if (t.type === "EXPENSE") {
-				expenses += cents;
+				expenses += amount;
 			}
 		}
 
@@ -201,22 +200,22 @@ export class BanksService {
 			.filter((a) => a.loan)
 			.map((a) => {
 				const loan = a.loan!;
-				const principalCents = toCents(loan.principal);
-				const remainingCents = toCents(loan.remaining);
+				const principal = Number(loan.principal);
+				const remaining = Number(loan.remaining);
 				const progress =
-					principalCents > 0
-						? Math.round(((principalCents - remainingCents) / principalCents) * 100)
+					principal > 0
+						? Math.round(((principal - remaining) / principal) * 100)
 						: 0;
 				return {
 					id: loan.id,
 					accountId: loan.accountId,
 					accountName: a.name,
-					principal: principalCents,
+					principal,
 					interestRate: Number(loan.interestRate),
 					termMonths: loan.termMonths,
 					startDate: loan.startDate.toISOString(),
-					monthlyPayment: toCents(loan.monthlyPayment),
-					remaining: remainingCents,
+					monthlyPayment: Number(loan.monthlyPayment),
+					remaining,
 					progress,
 					createdAt: loan.createdAt.toISOString(),
 					updatedAt: loan.updatedAt.toISOString(),

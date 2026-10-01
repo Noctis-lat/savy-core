@@ -277,8 +277,8 @@ describe("BanksService.getIncomeVsExpenses", () => {
 			{ type: "EXPENSE", amount: D(1200) },
 		]);
 		const result = await service.getIncomeVsExpenses("bank-1", "p1", "month");
-		expect(result.income).toBe(250000);
-		expect(result.expenses).toBe(200000);
+		expect(result.income).toBe(2500);
+		expect(result.expenses).toBe(2000);
 		expect(result.period).toMatch(/^\d{4}-\d{2}$/);
 		expect(typeof result.periodLabel).toBe("string");
 	});

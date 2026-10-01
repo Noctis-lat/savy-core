@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { toCents } from "../common/utils/money.util";
+
 import type { Category, CategoryType } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateCategoryDto, UpdateCategoryDto } from "./dto/category.dto";
@@ -126,10 +126,10 @@ export class CategoriesService {
 		let totalExpenses = 0;
 
 		for (const t of transactions) {
-			const cents = toCents(t.amount);
-			totalExpenses += cents;
+			const amount = Number(t.amount);
+			totalExpenses += amount;
 			if (t.categoryId) {
-				categorySums.set(t.categoryId, (categorySums.get(t.categoryId) ?? 0) + cents);
+				categorySums.set(t.categoryId, (categorySums.get(t.categoryId) ?? 0) + amount);
 			}
 		}
 

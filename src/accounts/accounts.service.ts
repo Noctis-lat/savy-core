@@ -1,5 +1,4 @@
 import { Injectable, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
-import { toCents } from "../common/utils/money.util";
 import type { Period } from "../common/utils/period.util";
 import { computePeriodRange, PERIODS } from "../common/utils/period.util";
 import type {
@@ -245,11 +244,11 @@ export class AccountsService {
 		let expenses = 0;
 
 		for (const t of transactions) {
-			const cents = toCents(t.amount);
+			const amount = Number(t.amount);
 			if (t.type === "INCOME") {
-				income += cents;
+				income += amount;
 			} else if (t.type === "EXPENSE") {
-				expenses += cents;
+				expenses += amount;
 			}
 		}
 
