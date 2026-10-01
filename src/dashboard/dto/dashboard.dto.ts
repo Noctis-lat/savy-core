@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import type { Transaction } from "../../generated/prisma/client";
+import type { IncomeFrequency, Transaction } from "../../generated/prisma/client";
 
 // ─── Types (for code consumers) ───────────────────────────────────────
 
@@ -67,6 +67,19 @@ export interface BankSummary {
 	accountCount: number;
 }
 
+export interface IncomeSourceSummary {
+	id: string;
+	name: string;
+	amount: number;
+	frequency: IncomeFrequency;
+	destinationAccountId: string;
+}
+
+export interface IncomeSourcesSummary {
+	sources: IncomeSourceSummary[];
+	estimatedMonthlyTotal: number;
+}
+
 export interface DashboardSummary {
 	netWorth: NetWorthSummary;
 	accountsDistribution: AccountDistribution[];
@@ -75,6 +88,7 @@ export interface DashboardSummary {
 	savingsGoals: SavingsGoalSummary[];
 	creditOverview: CreditOverview;
 	banks: BankSummary[];
+	incomeSources: IncomeSourcesSummary;
 	generatedAt: string;
 }
 
@@ -128,7 +142,10 @@ class RecentTransactionDto {
 	@ApiProperty({ example: "account-uuid", description: "Source account ID" })
 	accountId!: string;
 
-	@ApiPropertyOptional({ example: "destination-uuid", description: "Destination account ID (transfers/payments) or null" })
+	@ApiPropertyOptional({
+		example: "destination-uuid",
+		description: "Destination account ID (transfers/payments) or null",
+	})
 	destinationAccountId!: string | null;
 
 	@ApiPropertyOptional({ example: "category-uuid", description: "Category ID or null" })
@@ -143,7 +160,10 @@ class RecentTransactionDto {
 	@ApiPropertyOptional({ example: "Grocery shopping", description: "Description (may be null)" })
 	description!: string | null;
 
-	@ApiPropertyOptional({ example: "Weekly groceries at Walmart", description: "Additional note (may be null)" })
+	@ApiPropertyOptional({
+		example: "Weekly groceries at Walmart",
+		description: "Additional note (may be null)",
+	})
 	note!: string | null;
 
 	@ApiProperty({ example: "2026-07-28T12:00:00.000Z", description: "Transaction date (ISO)" })
@@ -270,6 +290,45 @@ class BankSummaryDto implements BankSummary {
 	accountCount!: number;
 }
 
+class IncomeSourceSummaryDto implements IncomeSourceSummary {
+	@ApiProperty({ example: "income-source-uuid", description: "Income source ID" })
+	id!: string;
+
+	@ApiProperty({ example: "Trabajo principal", description: "Income source display name" })
+	name!: string;
+
+	@ApiProperty({ example: 25000, description: "Amount received per payment cycle" })
+	amount!: number;
+
+	@ApiProperty({
+		enum: ["WEEKLY", "BIWEEKLY", "MONTHLY"],
+		example: "MONTHLY",
+		description: "Payment frequency",
+	})
+	frequency!: IncomeFrequency;
+
+	@ApiProperty({
+		example: "account-uuid",
+		description: "Destination account ID where income lands",
+	})
+	destinationAccountId!: string;
+}
+
+class IncomeSourcesSummaryDto implements IncomeSourcesSummary {
+	@ApiProperty({
+		type: [IncomeSourceSummaryDto],
+		description: "Active income sources, sorted by amount descending",
+	})
+	sources!: IncomeSourceSummaryDto[];
+
+	@ApiProperty({
+		example: 35000,
+		description:
+			"Estimated total monthly income (WEEKLY ×4.33, BIWEEKLY ×2.17, MONTHLY ×1, rounded)",
+	})
+	estimatedMonthlyTotal!: number;
+}
+
 export class DashboardSummaryDto {
 	@ApiProperty({ type: NetWorthSummaryDto, description: "Net worth summary" })
 	netWorth!: NetWorthSummaryDto;
@@ -297,6 +356,12 @@ export class DashboardSummaryDto {
 
 	@ApiProperty({ type: [BankSummaryDto], description: "Banks grouped by account count" })
 	banks!: BankSummaryDto[];
+
+	@ApiProperty({
+		type: IncomeSourcesSummaryDto,
+		description: "Active income sources with estimated monthly total",
+	})
+	incomeSources!: IncomeSourcesSummaryDto;
 
 	@ApiProperty({
 		example: "2026-07-29T12:00:00.000Z",

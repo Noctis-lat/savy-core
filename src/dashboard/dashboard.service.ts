@@ -5,6 +5,8 @@ import type {
 	AccountType,
 	CardStatement,
 	CreditCard,
+	IncomeFrequency,
+	IncomeSource,
 	Loan,
 	Prisma,
 	SavingsGoal,
@@ -18,6 +20,8 @@ import type {
 	BankSummary,
 	CreditCardSummary,
 	DashboardSummary,
+	IncomeSourceSummary,
+	IncomeSourcesSummary,
 	LoanSummary,
 	NetWorthSummary,
 	SavingsGoalSummary,
@@ -25,6 +29,13 @@ import type {
 
 const ASSET_TYPES: AccountType[] = ["DEBIT", "CASH"];
 const LIABILITY_TYPES: AccountType[] = ["CREDIT", "LOAN"];
+
+/** Multipliers to normalize income frequency to a monthly estimate. */
+const MONTHLY_MULTIPLIER: Record<IncomeFrequency, number> = {
+	WEEKLY: 4.33,
+	BIWEEKLY: 2.17,
+	MONTHLY: 1,
+};
 
 @Injectable()
 export class DashboardService {
@@ -37,32 +48,44 @@ export class DashboardService {
 		const profileId = profile.id;
 		const currency = profile.currency;
 
-		const [accounts, recentTransactions, budgetProgress, savingsGoals, creditCards, loans, banks] =
-			await Promise.all([
-				this.prisma.account.findMany({
-					where: { profileId, isActive: true },
-				}),
-				this.fetchRecentTransactions(profileId),
-				this.budgetsService.getProgressForAll(profileId),
-				this.prisma.savingsGoal.findMany({
-					where: { profileId },
-					include: { account: { select: { balance: true } } },
-				}),
-				this.prisma.creditCard.findMany({
-					where: { account: { profileId } },
-					include: {
-						account: true,
-						statements: { orderBy: { periodEnd: "desc" }, take: 1 },
-					},
-				}),
-				this.prisma.loan.findMany({
-					where: { account: { profileId } },
-				}),
-				this.prisma.bank.findMany({
-					where: { profileId },
-					include: { _count: { select: { accounts: true } } },
-				}),
-			]);
+		const [
+			accounts,
+			recentTransactions,
+			budgetProgress,
+			savingsGoals,
+			creditCards,
+			loans,
+			banks,
+			incomeSources,
+		] = await Promise.all([
+			this.prisma.account.findMany({
+				where: { profileId, isActive: true },
+			}),
+			this.fetchRecentTransactions(profileId),
+			this.budgetsService.getProgressForAll(profileId),
+			this.prisma.savingsGoal.findMany({
+				where: { profileId },
+				include: { account: { select: { balance: true } } },
+			}),
+			this.prisma.creditCard.findMany({
+				where: { account: { profileId } },
+				include: {
+					account: true,
+					statements: { orderBy: { periodEnd: "desc" }, take: 1 },
+				},
+			}),
+			this.prisma.loan.findMany({
+				where: { account: { profileId } },
+			}),
+			this.prisma.bank.findMany({
+				where: { profileId },
+				include: { _count: { select: { accounts: true } } },
+			}),
+			this.prisma.incomeSource.findMany({
+				where: { profileId, isActive: true },
+				orderBy: { amount: "desc" },
+			}),
+		]);
 
 		const netWorth = this.computeNetWorth(accounts, currency);
 		const accountsDistribution = this.computeAccountsDistribution(accounts);
@@ -71,6 +94,7 @@ export class DashboardService {
 		const creditOverview = this.computeCreditOverview(creditCards);
 		const loansSummary = this.computeLoans(loans);
 		const banksSummary = this.computeBanks(banks);
+		const incomeSourcesSummary = this.computeIncomeSources(incomeSources);
 
 		return {
 			netWorth,
@@ -80,6 +104,7 @@ export class DashboardService {
 			savingsGoals: savingsGoalsSummary,
 			creditOverview: { creditCards: creditOverview, loans: loansSummary },
 			banks: banksSummary,
+			incomeSources: incomeSourcesSummary,
 			generatedAt: new Date().toISOString(),
 		};
 	}
@@ -258,5 +283,21 @@ export class DashboardService {
 				accountCount: b._count.accounts,
 			}))
 			.sort((a, b) => b.accountCount - a.accountCount);
+	}
+
+	private computeIncomeSources(sources: IncomeSource[]): IncomeSourcesSummary {
+		const mapped: IncomeSourceSummary[] = sources.map((s) => ({
+			id: s.id,
+			name: s.name,
+			amount: Number(s.amount),
+			frequency: s.frequency,
+			destinationAccountId: s.destinationAccountId,
+		}));
+
+		const estimatedMonthlyTotal = Math.round(
+			mapped.reduce((acc, s) => acc + s.amount * MONTHLY_MULTIPLIER[s.frequency], 0),
+		);
+
+		return { sources: mapped, estimatedMonthlyTotal };
 	}
 }
