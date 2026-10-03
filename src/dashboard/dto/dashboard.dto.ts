@@ -1,5 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import type { IncomeFrequency, Transaction } from "../../generated/prisma/client";
+import type {
+	IncomeFrequency,
+	RecurringExpenseFrequency,
+	RecurringExpenseType,
+	Transaction,
+} from "../../generated/prisma/client";
 
 // ─── Types (for code consumers) ───────────────────────────────────────
 
@@ -80,6 +85,21 @@ export interface IncomeSourcesSummary {
 	estimatedMonthlyTotal: number;
 }
 
+export interface RecurringExpenseSummary {
+	id: string;
+	name: string;
+	amount: number;
+	frequency: RecurringExpenseFrequency;
+	type: RecurringExpenseType;
+	accountId: string;
+	url: string | null;
+}
+
+export interface RecurringExpensesSummary {
+	expenses: RecurringExpenseSummary[];
+	estimatedMonthlyTotal: number;
+}
+
 export interface DashboardSummary {
 	netWorth: NetWorthSummary;
 	accountsDistribution: AccountDistribution[];
@@ -89,6 +109,7 @@ export interface DashboardSummary {
 	creditOverview: CreditOverview;
 	banks: BankSummary[];
 	incomeSources: IncomeSourcesSummary;
+	recurringExpenses: RecurringExpensesSummary;
 	generatedAt: string;
 }
 
@@ -329,6 +350,58 @@ class IncomeSourcesSummaryDto implements IncomeSourcesSummary {
 	estimatedMonthlyTotal!: number;
 }
 
+class RecurringExpenseSummaryDto implements RecurringExpenseSummary {
+	@ApiProperty({ example: "recurring-expense-uuid", description: "Recurring expense ID" })
+	id!: string;
+
+	@ApiProperty({ example: "Netflix", description: "Recurring expense display name" })
+	name!: string;
+
+	@ApiProperty({ example: 199, description: "Amount charged per billing cycle" })
+	amount!: number;
+
+	@ApiProperty({
+		enum: ["WEEKLY", "BIWEEKLY", "MONTHLY", "YEARLY"],
+		example: "MONTHLY",
+		description: "Billing frequency",
+	})
+	frequency!: RecurringExpenseFrequency;
+
+	@ApiProperty({
+		enum: ["SUBSCRIPTION", "SERVICE", "UNCLASSIFIED"],
+		example: "SUBSCRIPTION",
+		description: "Type of recurring expense",
+	})
+	type!: RecurringExpenseType;
+
+	@ApiProperty({
+		example: "account-uuid",
+		description: "Account ID where the expense is charged",
+	})
+	accountId!: string;
+
+	@ApiPropertyOptional({
+		example: "https://www.netflix.com",
+		description: "URL of the service or null",
+	})
+	url!: string | null;
+}
+
+class RecurringExpensesSummaryDto implements RecurringExpensesSummary {
+	@ApiProperty({
+		type: [RecurringExpenseSummaryDto],
+		description: "Active recurring expenses, sorted by amount descending",
+	})
+	expenses!: RecurringExpenseSummaryDto[];
+
+	@ApiProperty({
+		example: 1500,
+		description:
+			"Estimated total monthly expense (WEEKLY ×4.33, BIWEEKLY ×2.17, MONTHLY ×1, YEARLY ÷12, rounded)",
+	})
+	estimatedMonthlyTotal!: number;
+}
+
 export class DashboardSummaryDto {
 	@ApiProperty({ type: NetWorthSummaryDto, description: "Net worth summary" })
 	netWorth!: NetWorthSummaryDto;
@@ -362,6 +435,12 @@ export class DashboardSummaryDto {
 		description: "Active income sources with estimated monthly total",
 	})
 	incomeSources!: IncomeSourcesSummaryDto;
+
+	@ApiProperty({
+		type: RecurringExpensesSummaryDto,
+		description: "Active recurring expenses with estimated monthly total",
+	})
+	recurringExpenses!: RecurringExpensesSummaryDto;
 
 	@ApiProperty({
 		example: "2026-07-29T12:00:00.000Z",

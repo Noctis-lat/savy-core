@@ -9,6 +9,8 @@ import type {
 	IncomeSource,
 	Loan,
 	Prisma,
+	RecurringExpense,
+	RecurringExpenseFrequency,
 	SavingsGoal,
 	Transaction,
 } from "../generated/prisma/client";
@@ -24,6 +26,8 @@ import type {
 	IncomeSourcesSummary,
 	LoanSummary,
 	NetWorthSummary,
+	RecurringExpenseSummary,
+	RecurringExpensesSummary,
 	SavingsGoalSummary,
 } from "./dto/dashboard.dto";
 
@@ -35,6 +39,13 @@ const MONTHLY_MULTIPLIER: Record<IncomeFrequency, number> = {
 	WEEKLY: 4.33,
 	BIWEEKLY: 2.17,
 	MONTHLY: 1,
+};
+
+const RECURRING_MONTHLY_MULTIPLIER: Record<RecurringExpenseFrequency, number> = {
+	WEEKLY: 4.33,
+	BIWEEKLY: 2.17,
+	MONTHLY: 1,
+	YEARLY: 1 / 12,
 };
 
 @Injectable()
@@ -57,6 +68,7 @@ export class DashboardService {
 			loans,
 			banks,
 			incomeSources,
+			recurringExpenses,
 		] = await Promise.all([
 			this.prisma.account.findMany({
 				where: { profileId, isActive: true },
@@ -85,6 +97,10 @@ export class DashboardService {
 				where: { profileId, isActive: true },
 				orderBy: { amount: "desc" },
 			}),
+			this.prisma.recurringExpense.findMany({
+				where: { profileId, isActive: true },
+				orderBy: { amount: "desc" },
+			}),
 		]);
 
 		const netWorth = this.computeNetWorth(accounts, currency);
@@ -95,6 +111,7 @@ export class DashboardService {
 		const loansSummary = this.computeLoans(loans);
 		const banksSummary = this.computeBanks(banks);
 		const incomeSourcesSummary = this.computeIncomeSources(incomeSources);
+		const recurringExpensesSummary = this.computeRecurringExpenses(recurringExpenses);
 
 		return {
 			netWorth,
@@ -105,6 +122,7 @@ export class DashboardService {
 			creditOverview: { creditCards: creditOverview, loans: loansSummary },
 			banks: banksSummary,
 			incomeSources: incomeSourcesSummary,
+			recurringExpenses: recurringExpensesSummary,
 			generatedAt: new Date().toISOString(),
 		};
 	}
@@ -299,5 +317,23 @@ export class DashboardService {
 		);
 
 		return { sources: mapped, estimatedMonthlyTotal };
+	}
+
+	private computeRecurringExpenses(expenses: RecurringExpense[]): RecurringExpensesSummary {
+		const mapped: RecurringExpenseSummary[] = expenses.map((e) => ({
+			id: e.id,
+			name: e.name,
+			amount: Number(e.amount),
+			frequency: e.frequency,
+			type: e.type,
+			accountId: e.accountId,
+			url: e.url,
+		}));
+
+		const estimatedMonthlyTotal = Math.round(
+			mapped.reduce((acc, e) => acc + e.amount * RECURRING_MONTHLY_MULTIPLIER[e.frequency], 0),
+		);
+
+		return { expenses: mapped, estimatedMonthlyTotal };
 	}
 }
