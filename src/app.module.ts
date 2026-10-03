@@ -17,6 +17,7 @@ import { IncomeSourcesModule } from "./income-sources/income-sources.module";
 import { LoansModule } from "./loans/loans.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { ProfilesModule } from "./profiles/profiles.module";
+import { RecurringExpensesModule } from "./recurring-expenses/recurring-expenses.module";
 import { SavingsGoalsModule } from "./savings-goals/savings-goals.module";
 import { TransactionsModule } from "./transactions/transactions.module";
 
@@ -47,6 +48,7 @@ import { TransactionsModule } from "./transactions/transactions.module";
 		CardStatementsModule,
 		LoansModule,
 		DashboardModule,
+		RecurringExpensesModule,
 	],
 	providers: [
 		{

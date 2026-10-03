@@ -19,12 +19,14 @@ Profile (root)
 │       ├── Loan? (1:1)        ← extension: loan-specific fields
 │       ├── Transaction[]      ← origin or destination
 │       ├── SavingsGoal[]      ← progress derived from account balance
-│       └── IncomeSource[]     ← periodic income targets this account
+│       ├── IncomeSource[]     ← periodic income targets this account
+│       └── RecurringExpense[] ← periodic expenses charged to this account
 ├── Account[]                  ← direct relation (for bankless accounts: CASH)
 ├── Category[]                 ← classify transactions and budgets (INCOME | EXPENSE)
 ├── Budget[]                   ← spending limits per category and period
 ├── SavingsGoal[]              ← savings targets linked to an account
-└── IncomeSource[]             ← recurring income definitions
+├── IncomeSource[]             ← recurring income definitions
+└── RecurringExpense[]         ← recurring expense definitions (subscriptions, services, etc.)
 ```
 
 ### Entity Descriptions
@@ -54,6 +56,9 @@ Savings target linked to a specific account. Stores target amount (`targetAmount
 
 **IncomeSource**
 Recurring income definition. Stores amount, frequency (`WEEKLY`, `BIWEEKLY`, `MONTHLY`), paydays (`Int[]`), and destination account. The system generates `INCOME` transactions to the destination account when paydays are reached.
+
+**RecurringExpense**
+Recurring expense definition — the expense mirror of `IncomeSource`. Covers subscriptions (Netflix, Spotify), services (electricity, internet, rent), and any periodic expense. Distinguished by `type` enum: `SUBSCRIPTION`, `SERVICE`, `UNCLASSIFIED`. Stores amount, frequency (`WEEKLY`, `BIWEEKLY`, `MONTHLY`, `YEARLY`), billing days (`Int[]`), payment account (`accountId`), optional category, optional URL (for subscription management), color, and icon. Soft delete with `isActive`. Two delete modes: soft (cancel, keeps history) and permanent (hard delete). The system will generate `EXPENSE` transactions on the payment account when billing days are reached (reactive behavior pending implementation).
 
 **CreditCard**
 Credit card details, 1:1 extension of an Account of type `CREDIT`. Stores credit limit, cut day, payment day, annual interest rate (as decimal: `0.3600 = 36%`), and interest-free months. Generates CardStatements.
@@ -110,6 +115,10 @@ The goal's progress is always in sync with its account balance. No separate "sav
 
 - **Payday reached** → system generates a `Transaction INCOME` to the `destinationAccountId` → account balance increases.
 
+### RecurringExpense
+
+- **Billing day reached** → system generates a `Transaction EXPENSE` on the `accountId` → account balance decreases. *(PENDING implementation — follows the same lazy strategy as IncomeSource)*
+
 ---
 
 ## 4. Architecture Decisions
@@ -140,20 +149,27 @@ Use `@nestjs/schedule` with cron jobs to generate periodic transactions at fixed
 | AuthModule | Supabase auth + JWT validation + guards |
 | ProfilesModule | Profile CRUD + computed fields |
 | AccountsModule | Account CRUD with soft delete |
+| BanksModule | Bank CRUD with soft delete |
+| CategoriesModule | Category CRUD |
+| TransactionsModule | Transaction CRUD |
+| CreditCardsModule | Credit card CRUD |
+| CardStatementsModule | Statement generation |
+| LoansModule | Loan CRUD |
+| BudgetsModule | Budget CRUD with soft delete |
+| SavingsGoalsModule | Savings goal CRUD |
+| IncomeSourcesModule | Income source CRUD + bulk create |
+| RecurringExpensesModule | Recurring expense CRUD (subscriptions, services) with soft + hard delete |
+| DashboardModule | Analytics summary |
 
 ### To Build
 
-| Priority | Module | Dependencies | Status |
+| Priority | Feature | Dependencies | Status |
 |---|---|---|---|
-| 1 | BanksModule | Profile | Pending |
-| 2 | CategoriesModule | Profile | Pending |
-| 3 | TransactionsModule | Account, Category | Pending |
-| 4 | CreditCardsModule | Account | Pending |
-| 5 | CardStatementsModule | CreditCard | Pending |
-| 6 | LoansModule | Account | Pending |
-| 7 | BudgetsModule | Category, Account (multi-account TBD) | Pending |
-| 8 | SavingsGoalsModule | Account | Pending |
-| 9 | IncomeSourcesModule | Account | Pending |
+| 1 | RecurringExpense reactive behavior — lazy EXPENSE transaction generation on billing day | RecurringExpensesModule, TransactionsModule | **Pending** |
+| 2 | IncomeSource reactive behavior — lazy INCOME transaction generation on payday | IncomeSourcesModule, TransactionsModule | **Pending** |
+| 3 | Loan reactive behavior — interest charge + payment processing | LoansModule, TransactionsModule | Pending |
+| 4 | CreditCard reactive behavior — statement generation on cut date | CreditCardsModule, CardStatementsModule | Pending |
+| 5 | SavingsGoal reactive behavior — auto progress from account balance | SavingsGoalsModule | Pending |
 
 > Priority order is a suggestion based on dependency chains. The actual order may change based on frontend needs.
 
@@ -162,13 +178,14 @@ Use `@nestjs/schedule` with cron jobs to generate periodic transactions at fixed
 ## 6. Future Ideas & Backlog
 
 - **Scheduler module** (`@nestjs/schedule`) for periodic transactions (see §4)
-- **Recurring transactions** beyond income sources (e.g., rent, subscriptions)
+- **Recurring transactions** beyond income sources and recurring expenses (e.g., one-off scheduled transactions)
 - **Multi-currency support** with exchange rate tracking
 - **Reports & analytics** module (spending trends, category breakdowns)
-- **Notifications** (budget exceeded, payment due, goal reached)
+- **Notifications** (budget exceeded, payment due, goal reached, subscription renewal reminder)
 - **Import/export** (CSV, bank statement parsing)
 - **Shared accounts** (multi-profile access to an account)
+- **RecurringExpense enhancements**: trial period tracking, auto-renew flag, next billing date computation, manual payment marking
 
 ---
 
-*Last updated: 2026-07-31 — Session: initial planning*
+*Last updated: 2026-10-02 — Session: added RecurringExpense module*
