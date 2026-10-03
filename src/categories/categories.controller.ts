@@ -15,10 +15,7 @@ import {
 	QueryCategoriesDto,
 	UpdateCategoryDto,
 } from "./dto/category.dto";
-import {
-	QueryTopCategoriesDto,
-	TopCategoriesResponseDto,
-} from "./dto/top-category.dto";
+import { QueryTopCategoriesDto, TopCategoriesResponseDto } from "./dto/top-category.dto";
 
 @ApiTags("categories")
 @ApiBearerAuth()

@@ -203,9 +203,7 @@ export class BanksService {
 				const principal = Number(loan.principal);
 				const remaining = Number(loan.remaining);
 				const progress =
-					principal > 0
-						? Math.round(((principal - remaining) / principal) * 100)
-						: 0;
+					principal > 0 ? Math.round(((principal - remaining) / principal) * 100) : 0;
 				return {
 					id: loan.id,
 					accountId: loan.accountId,

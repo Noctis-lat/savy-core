@@ -118,7 +118,11 @@ export class TransactionsService {
 			],
 		};
 
-		const promises: [Promise<Transaction[]>, Promise<number>, Promise<TransactionsInfoDto | undefined>] = [
+		const promises: [
+			Promise<Transaction[]>,
+			Promise<number>,
+			Promise<TransactionsInfoDto | undefined>,
+		] = [
 			this.prisma.transaction.findMany({
 				where,
 				skip,
