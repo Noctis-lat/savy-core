@@ -289,73 +289,73 @@ Chain strategy: feature-branch-chain
 
 ## Phase 5: Dashboard / DTOs / Computed Fields
 
-- [ ] T-043 RED: Write failing unit tests for `availableCredit` computed field in `CreditCardsService`. Test: (1) positive available credit (10000 - 3000 = 7000.00); (2) fully utilized (10000 - 10000 = 0.00); (3) over-limit (10000 - 12000 = -2000.00); (4) saldo a favor (10000 - (-1000) = 11000.00); (5) decimal rounding (10000 - 3333.33 = 6666.67). Verify response DTO includes `availableCredit`, `currentBalance`, `nextPaymentDueDate`.
+- [x] T-043 RED: Write failing unit tests for `availableCredit` computed field in `CreditCardsService`. Test: (1) positive available credit (10000 - 3000 = 7000.00); (2) fully utilized (10000 - 10000 = 0.00); (3) over-limit (10000 - 12000 = -2000.00); (4) saldo a favor (10000 - (-1000) = 11000.00); (5) decimal rounding (10000 - 3333.33 = 6666.67). Verify response DTO includes `availableCredit`, `currentBalance`, `nextPaymentDueDate`.
   - **Files**: `src/credit-cards/credit-cards.service.spec.ts` (append to existing)
   - **Dependencies**: T-006
   - **Verification**: `bun run test src/credit-cards/credit-cards.service.spec.ts` — new tests FAIL
   - **TDD**: RED step — 5 spec scenarios
 
-- [ ] T-044 GREEN: Implement `toResponseDto(card, account)` private method in `CreditCardsService`. Compute `availableCredit = creditLimit - account.balance` (Decimal, rounded to 2dp). Map `currentBalance = account.balance`. Query latest unpaid statement for `nextPaymentDueDate` (null if none). Modify `findAll` and `findOne` to use `toResponseDto`. Run tests → pass.
+- [x] T-044 GREEN: Implement `toResponseDto(card, account)` private method in `CreditCardsService`. Compute `availableCredit = creditLimit - account.balance` (Decimal, rounded to 2dp). Map `currentBalance = account.balance`. Query latest unpaid statement for `nextPaymentDueDate` (null if none). Modify `findAll` and `findOne` to use `toResponseDto`. Run tests → pass.
   - **Files**: `src/credit-cards/credit-cards.service.ts`
   - **Dependencies**: T-043
   - **Verification**: `bun run test src/credit-cards/credit-cards.service.spec.ts` — ALL pass
   - **TDD**: GREEN
 
-- [ ] T-045 Modify `CreditCardDTO`s: `CreateCreditCardDto` replace `paymentDay` with `paymentDueDays` (`@IsOptional()`, `@IsInt()`, `@Min(1)`, `@Max(31)`), add optional `overLimitTolerance`. `UpdateCreditCardDto` same. `CreditCardResponseDto` add `availableCredit`, `currentBalance`, `nextPaymentDueDate`, `paymentDueDays`. Keep `paymentDay` as deprecated optional for backward compat.
+- [x] T-045 Modify `CreditCardDTO`s: `CreateCreditCardDto` replace `paymentDay` with `paymentDueDays` (`@IsOptional()`, `@IsInt()`, `@Min(1)`, `@Max(31)`), add optional `overLimitTolerance`. `UpdateCreditCardDto` same. `CreditCardResponseDto` add `availableCredit`, `currentBalance`, `nextPaymentDueDate`, `paymentDueDays`. Keep `paymentDay` as deprecated optional for backward compat.
   - **Files**: `src/credit-cards/dto/credit-card.dto.ts`
   - **Dependencies**: T-044
   - **Verification**: `bun run build` — DTOs compile. Swagger shows new fields.
   - **TDD**: No unit test (DTO structural)
 
-- [ ] T-046 RED: Write failing unit test for `DashboardService.getSummary` — verify it calls `statementGenerationService.generatePending(profile.id)` before the `Promise.all` that fetches credit cards. Mock `StatementGenerationService` and `PrismaService`.
+- [x] T-046 RED: Write failing unit test for `DashboardService.getSummary` — verify it calls `statementGenerationService.generatePending(profile.id)` before the `Promise.all` that fetches credit cards. Mock `StatementGenerationService` and `PrismaService`.
   - **Files**: `src/dashboard/dashboard.service.spec.ts` (append to existing)
   - **Dependencies**: T-030
   - **Verification**: `bun run test src/dashboard/dashboard.service.spec.ts` — new test FAIL
   - **TDD**: RED step
 
-- [ ] T-047 GREEN: Modify `DashboardService.getSummary` to inject `StatementGenerationService` and call `generatePending(profile.id)` before `Promise.all`. Run test → pass.
+- [x] T-047 GREEN: Modify `DashboardService.getSummary` to inject `StatementGenerationService` and call `generatePending(profile.id)` before `Promise.all`. Run test → pass.
   - **Files**: `src/dashboard/dashboard.service.ts`
   - **Dependencies**: T-046
   - **Verification**: `bun run test src/dashboard/dashboard.service.spec.ts` — pass
   - **TDD**: GREEN
 
-- [ ] T-048 RED: Write failing unit test for `DashboardService.computeCreditOverview` — verify it uses `paymentDueDate` (not `periodEnd`) for `nextPaymentDue`, and exposes `noInterestPayment` and `interestAmount` from latest statement. Mock PrismaService.
+- [x] T-048 RED: Write failing unit test for `DashboardService.computeCreditOverview` — verify it uses `paymentDueDate` (not `periodEnd`) for `nextPaymentDue`, and exposes `noInterestPayment` and `interestAmount` from latest statement. Mock PrismaService.
   - **Files**: `src/dashboard/dashboard.service.spec.ts` (append)
   - **Dependencies**: T-047
   - **Verification**: `bun run test src/dashboard/dashboard.service.spec.ts` — new test FAIL
   - **TDD**: RED step
 
-- [ ] T-049 GREEN: Modify `computeCreditOverview` to use `statement.paymentDueDate` for `nextPaymentDue` field. Expose `noInterestPayment` and `interestAmount` from latest unpaid statement. Run test → pass.
+- [x] T-049 GREEN: Modify `computeCreditOverview` to use `statement.paymentDueDate` for `nextPaymentDue` field. Expose `noInterestPayment` and `interestAmount` from latest unpaid statement. Run test → pass.
   - **Files**: `src/dashboard/dashboard.service.ts`
   - **Dependencies**: T-048
   - **Verification**: `bun run test src/dashboard/dashboard.service.spec.ts` — pass
   - **TDD**: GREEN
 
-- [ ] T-050 Modify `DashboardModule` to import `CardStatementsModule` (for `StatementGenerationService`). Verify `bun run build`.
+- [x] T-050 Modify `DashboardModule` to import `CardStatementsModule` (for `StatementGenerationService`). Verify `bun run build`.
   - **Files**: `src/dashboard/dashboard.module.ts`
   - **Dependencies**: T-049
   - **Verification**: `bun run build` — no errors
   - **TDD**: No test (module wiring)
 
-- [ ] T-051 Modify `CreditCardSummary` in `dashboard.dto.ts`: add `noInterestPayment?: number`, `interestAmount?: number`, `paymentDueDate?: Date`. Add `@ApiProperty` decorators.
+- [x] T-051 Modify `CreditCardSummary` in `dashboard.dto.ts`: add `noInterestPayment?: number`, `interestAmount?: number`, `paymentDueDate?: Date`. Add `@ApiProperty` decorators.
   - **Files**: `src/dashboard/dto/dashboard.dto.ts`
   - **Dependencies**: T-049
   - **Verification**: `bun run build` — DTO compiles
   - **TDD**: No unit test (DTO structural)
 
-- [ ] T-052 RED: Write failing unit test for `BanksService.findCreditCardsByBank` — verify response includes `availableCredit` and `paymentDueDays` for each card. Mock PrismaService.
+- [x] T-052 RED: Write failing unit test for `BanksService.findCreditCardsByBank` — verify response includes `availableCredit` and `paymentDueDays` for each card. Mock PrismaService.
   - **Files**: `src/banks/banks.service.spec.ts` (append to existing)
   - **Dependencies**: T-044
   - **Verification**: `bun run test src/banks/banks.service.spec.ts` — new test FAIL
   - **TDD**: RED step
 
-- [ ] T-053 GREEN: Modify `BanksService.findCreditCardsByBank` to map responses with `availableCredit = creditLimit - account.balance` and `paymentDueDays`. Run test → pass.
+- [x] T-053 GREEN: Modify `BanksService.findCreditCardsByBank` to map responses with `availableCredit = creditLimit - account.balance` and `paymentDueDays`. Run test → pass.
   - **Files**: `src/banks/banks.service.ts`
   - **Dependencies**: T-052
   - **Verification**: `bun run test src/banks/banks.service.spec.ts` — pass
   - **TDD**: GREEN
 
-- [ ] T-054 Modify `BankCreditCardResponseDto` in `banks/dto/bank-sub-resources.dto.ts`: add `availableCredit`, `paymentDueDays`. Add `@ApiProperty` decorators.
+- [x] T-054 Modify `BankCreditCardResponseDto` in `banks/dto/bank-sub-resources.dto.ts`: add `availableCredit`, `paymentDueDays`. Add `@ApiProperty` decorators.
   - **Files**: `src/banks/dto/bank-sub-resources.dto.ts`
   - **Dependencies**: T-053
   - **Verification**: `bun run build` — DTO compiles
