@@ -1,5 +1,6 @@
 import { Test, type TestingModule } from "@nestjs/testing";
 import { BudgetsService } from "../budgets/budgets.service";
+import { StatementGenerationService } from "../card-statements/statement-generation.service";
 import type { Profile } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { DashboardService } from "./dashboard.service";
@@ -32,6 +33,7 @@ describe("DashboardService", () => {
 	let service: DashboardService;
 	let prisma: { [k: string]: { findMany: jest.Mock } };
 	let budgetsService: { getProgressForAll: jest.Mock };
+	let statementGenerationService: { generatePending: jest.Mock };
 
 	const profile = { id: "profile-1", currency: "MXN" } as Profile;
 
@@ -49,14 +51,18 @@ describe("DashboardService", () => {
 			creditCard: { findMany: jest.fn() },
 			loan: { findMany: jest.fn() },
 			bank: { findMany: jest.fn() },
+			incomeSource: { findMany: jest.fn().mockResolvedValue([]) },
+			recurringExpense: { findMany: jest.fn().mockResolvedValue([]) },
 		};
 		budgetsService = { getProgressForAll: jest.fn() };
+		statementGenerationService = { generatePending: jest.fn().mockResolvedValue(undefined) };
 
 		const module: TestingModule = await Test.createTestingModule({
 			providers: [
 				DashboardService,
 				{ provide: PrismaService, useValue: prisma },
 				{ provide: BudgetsService, useValue: budgetsService },
+				{ provide: StatementGenerationService, useValue: statementGenerationService },
 			],
 		}).compile();
 
@@ -167,20 +173,17 @@ describe("DashboardService", () => {
 		expect(summary.netWorth.total).toBe(-208000);
 	});
 
-	it("maps recent transactions with Number() and ISO date", async () => {
+	it("returns the full transaction objects for recentTransactions", async () => {
+		const row = {
+			id: "tx-1",
+			type: "EXPENSE",
+			amount: asDecimal(1500),
+			description: "Groceries",
+			date: new Date("2026-07-29T12:00:00.000Z"),
+		};
 		setupFindMany({
 			account: [mockAccount({ id: "a-debit", type: "DEBIT", balance: asDecimal(100) })],
-			transaction: [
-				{
-					id: "tx-1",
-					type: "EXPENSE",
-					amount: asDecimal(1500),
-					description: "Groceries",
-					date: new Date("2026-07-29T12:00:00.000Z"),
-					account: { name: "Checking" },
-					category: { name: "Food" },
-				},
-			],
+			transaction: [row],
 			savingsGoal: [],
 			creditCard: [],
 			loan: [],
@@ -190,14 +193,9 @@ describe("DashboardService", () => {
 
 		const summary = await service.getSummary(profile);
 
+		// Contract (b6e6a21): the service passes Prisma transaction rows through untouched.
 		expect(summary.recentTransactions).toHaveLength(1);
-		const tx = summary.recentTransactions[0];
-		expect(tx.amount).toBe(1500);
-		expect(typeof tx.amount).toBe("number");
-		expect(tx.date).toBe("2026-07-29T12:00:00.000Z");
-		expect(tx.accountName).toBe("Checking");
-		expect(tx.categoryName).toBe("Food");
-		expect(tx.description).toBe("Groceries");
+		expect(summary.recentTransactions[0]).toBe(row);
 	});
 
 	it("computes credit card overview using latest statement when present", async () => {
@@ -214,7 +212,10 @@ describe("DashboardService", () => {
 						{
 							balance: asDecimal(12000),
 							minPayment: asDecimal(600),
+							noInterestPayment: asDecimal(12000),
+							interestAmount: asDecimal(0),
 							periodEnd: new Date("2026-08-25T00:00:00.000Z"),
+							paymentDueDate: new Date("2026-09-14T00:00:00.000Z"),
 							isPaid: false,
 						},
 					],
@@ -232,7 +233,7 @@ describe("DashboardService", () => {
 		expect(card.creditLimit).toBe(50000);
 		expect(card.available).toBe(38000); // 50000 - 12000
 		expect(card.minPayment).toBe(600);
-		expect(card.nextPaymentDue).toBe("2026-08-25T00:00:00.000Z");
+		expect(card.nextPaymentDue).toBe("2026-09-14T00:00:00.000Z");
 	});
 
 	it("computes loan summary and null nextPaymentDue", async () => {
@@ -329,5 +330,183 @@ describe("DashboardService", () => {
 		expect(summary.savingsGoals[2].isCompleted).toBe(true);
 		expect(summary.savingsGoals[0].isCompleted).toBe(false);
 		expect(summary.savingsGoals[0].deadline).toBe("2026-09-30T00:00:00.000Z");
+	});
+
+	// ─── T-046: generatePending trigger before Promise.all ──────────────
+
+	it("calls statementGenerationService.generatePending(profile.id) before Promise.all", async () => {
+		setupFindMany({
+			account: [mockAccount({ id: "a-debit", type: "DEBIT", balance: asDecimal(100) })],
+			transaction: [],
+			savingsGoal: [],
+			creditCard: [],
+			loan: [],
+			bank: [],
+		});
+		budgetsService.getProgressForAll.mockResolvedValue([]);
+
+		await service.getSummary(profile);
+
+		expect(statementGenerationService.generatePending).toHaveBeenCalledTimes(1);
+		expect(statementGenerationService.generatePending).toHaveBeenCalledWith("profile-1");
+	});
+
+	// ─── T-048: computeCreditOverview uses paymentDueDate, exposes noInterestPayment + interestAmount ──
+
+	it("computeCreditOverview uses paymentDueDate (not periodEnd) and exposes noInterestPayment + interestAmount", async () => {
+		const paymentDueDate = new Date("2026-11-04T00:00:00.000Z");
+		setupFindMany({
+			account: [mockAccount({ id: "cc-acct", type: "CREDIT", balance: asDecimal(-4000) })],
+			transaction: [],
+			savingsGoal: [],
+			creditCard: [
+				{
+					id: "card-1",
+					creditLimit: asDecimal(50000),
+					account: mockAccount({ id: "cc-acct", balance: asDecimal(-4000) }),
+					statements: [
+						{
+							balance: asDecimal(12000),
+							minPayment: asDecimal(600),
+							noInterestPayment: asDecimal(12000),
+							interestAmount: asDecimal(52.2),
+							periodEnd: new Date("2026-08-25T00:00:00.000Z"),
+							paymentDueDate,
+							isPaid: false,
+						},
+					],
+				},
+			],
+			loan: [],
+			bank: [],
+		});
+		budgetsService.getProgressForAll.mockResolvedValue([]);
+
+		const summary = await service.getSummary(profile);
+
+		const card = summary.creditOverview.creditCards[0];
+		expect(card.id).toBe("card-1");
+		expect(card.nextPaymentDue).toBe(paymentDueDate.toISOString());
+		expect(card.noInterestPayment).toBe(12000);
+		expect(card.interestAmount).toBe(52.2);
+		expect(card.minPayment).toBe(600);
+	});
+
+	it("computeCreditOverview returns null nextPaymentDue when statement is paid", async () => {
+		setupFindMany({
+			account: [mockAccount({ id: "cc-acct", type: "CREDIT", balance: asDecimal(-4000) })],
+			transaction: [],
+			savingsGoal: [],
+			creditCard: [
+				{
+					id: "card-1",
+					creditLimit: asDecimal(50000),
+					account: mockAccount({ id: "cc-acct", balance: asDecimal(-4000) }),
+					statements: [
+						{
+							balance: asDecimal(12000),
+							minPayment: asDecimal(600),
+							noInterestPayment: asDecimal(12000),
+							interestAmount: asDecimal(0),
+							periodEnd: new Date("2026-08-25T00:00:00.000Z"),
+							paymentDueDate: new Date("2026-09-14T00:00:00.000Z"),
+							isPaid: true,
+						},
+					],
+				},
+			],
+			loan: [],
+			bank: [],
+		});
+		budgetsService.getProgressForAll.mockResolvedValue([]);
+
+		const summary = await service.getSummary(profile);
+
+		const card = summary.creditOverview.creditCards[0];
+		expect(card.nextPaymentDue).toBeNull();
+	});
+
+	it("generates pending statements before any read query runs", async () => {
+		setupFindMany({
+			account: [],
+			transaction: [],
+			savingsGoal: [],
+			creditCard: [],
+			loan: [],
+			bank: [],
+		});
+		budgetsService.getProgressForAll.mockResolvedValue([]);
+
+		await service.getSummary(profile);
+
+		const generateOrder = statementGenerationService.generatePending.mock.invocationCallOrder[0];
+		const firstReadOrder = prisma.account.findMany.mock.invocationCallOrder[0];
+		expect(generateOrder).toBeLessThan(firstReadOrder);
+	});
+
+	// ─── T-051: availableCredit + paymentDueDate on CreditCardSummary ───
+
+	it("exposes availableCredit (creditLimit - account.balance) and the frozen paymentDueDate", async () => {
+		const paymentDueDate = new Date("2026-11-04T00:00:00.000Z");
+		setupFindMany({
+			account: [],
+			transaction: [],
+			savingsGoal: [],
+			creditCard: [
+				{
+					id: "card-1",
+					creditLimit: asDecimal(10000),
+					account: mockAccount({ id: "cc-acct", type: "CREDIT", balance: asDecimal(3000) }),
+					statements: [
+						{
+							balance: asDecimal(3000),
+							minPayment: asDecimal(250),
+							noInterestPayment: asDecimal(3000),
+							interestAmount: asDecimal(0),
+							periodEnd: new Date("2026-10-15T00:00:00.000Z"),
+							paymentDueDate,
+							isPaid: true,
+						},
+					],
+				},
+			],
+			loan: [],
+			bank: [],
+		});
+		budgetsService.getProgressForAll.mockResolvedValue([]);
+
+		const summary = await service.getSummary(profile);
+
+		const card = summary.creditOverview.creditCards[0];
+		expect(card.availableCredit).toBe(7000);
+		expect(card.paymentDueDate).toBe(paymentDueDate.toISOString());
+		// Paid statement: nothing is due next
+		expect(card.nextPaymentDue).toBeNull();
+	});
+
+	it("availableCredit goes negative when over limit and grows with saldo a favor", async () => {
+		const makeCard = (id: string, balance: number) => ({
+			id,
+			creditLimit: asDecimal(10000),
+			account: mockAccount({ id: `acct-${id}`, type: "CREDIT", balance: asDecimal(balance) }),
+			statements: [],
+		});
+		setupFindMany({
+			account: [],
+			transaction: [],
+			savingsGoal: [],
+			creditCard: [makeCard("over", 12000), makeCard("favor", -1000)],
+			loan: [],
+			bank: [],
+		});
+		budgetsService.getProgressForAll.mockResolvedValue([]);
+
+		const summary = await service.getSummary(profile);
+
+		const [over, favor] = summary.creditOverview.creditCards;
+		expect(over.availableCredit).toBe(-2000);
+		expect(favor.availableCredit).toBe(11000);
+		expect(over.paymentDueDate).toBeNull();
+		expect(over.noInterestPayment).toBeNull();
 	});
 });

@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { BudgetsService } from "../budgets/budgets.service";
+import { StatementGenerationService } from "../card-statements/statement-generation.service";
 import type {
 	Account,
 	AccountType,
@@ -8,12 +9,12 @@ import type {
 	IncomeFrequency,
 	IncomeSource,
 	Loan,
-	Prisma,
 	RecurringExpense,
 	RecurringExpenseFrequency,
 	SavingsGoal,
 	Transaction,
 } from "../generated/prisma/client";
+import { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import type {
 	AccountDistribution,
@@ -53,11 +54,16 @@ export class DashboardService {
 	constructor(
 		private readonly prisma: PrismaService,
 		private readonly budgetsService: BudgetsService,
+		private readonly statementGenerationService: StatementGenerationService,
 	) {}
 
 	async getSummary(profile: { id: string; currency: string }): Promise<DashboardSummary> {
 		const profileId = profile.id;
 		const currency = profile.currency;
+
+		// Lazy statement generation trigger — runs before reads so the dashboard
+		// reflects up-to-date statement state. No-op when feature flag is off.
+		await this.statementGenerationService.generatePending(profileId);
 
 		const [
 			accounts,
@@ -260,8 +266,20 @@ export class DashboardService {
 			const used = latest ? Number(latest.balance) : Math.abs(Number(card.account.balance));
 			const available = Math.max(0, creditLimit - used);
 
-			const nextPaymentDue = latest && !latest.isPaid ? latest.periodEnd.toISOString() : null;
+			// Use paymentDueDate (not periodEnd) for nextPaymentDue — per payment-due-date spec
+			const nextPaymentDue =
+				latest && !latest.isPaid && latest.paymentDueDate
+					? latest.paymentDueDate.toISOString()
+					: null;
 			const minPayment = latest ? Number(latest.minPayment) : null;
+			const noInterestPayment = latest ? Number(latest.noInterestPayment) : null;
+			const interestAmount = latest ? Number(latest.interestAmount) : null;
+			const paymentDueDate = latest?.paymentDueDate ? latest.paymentDueDate.toISOString() : null;
+			// availableCredit = creditLimit - account.balance (see available-credit spec)
+			const availableCredit = new Prisma.Decimal(card.creditLimit.toString())
+				.sub(new Prisma.Decimal(card.account.balance.toString()))
+				.toDecimalPlaces(2)
+				.toNumber();
 
 			return {
 				id: card.id,
@@ -269,6 +287,10 @@ export class DashboardService {
 				available,
 				nextPaymentDue,
 				minPayment,
+				noInterestPayment,
+				interestAmount,
+				availableCredit,
+				paymentDueDate,
 			};
 		});
 	}

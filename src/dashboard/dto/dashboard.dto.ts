@@ -49,6 +49,10 @@ export interface CreditCardSummary {
 	available: number;
 	nextPaymentDue: string | null;
 	minPayment: number | null;
+	noInterestPayment: number | null;
+	interestAmount: number | null;
+	availableCredit: number;
+	paymentDueDate: string | null;
 }
 
 export interface LoanSummary {
@@ -264,6 +268,30 @@ class CreditCardSummaryDto implements CreditCardSummary {
 		description: "Minimum payment from latest statement or null",
 	})
 	minPayment!: number | null;
+
+	@ApiPropertyOptional({
+		example: 12000,
+		description: "No-interest payment amount from latest statement or null",
+	})
+	noInterestPayment!: number | null;
+
+	@ApiPropertyOptional({
+		example: 52.2,
+		description: "Interest amount from latest statement or null",
+	})
+	interestAmount!: number | null;
+
+	@ApiProperty({
+		example: 7000,
+		description: "Available credit: creditLimit - account balance (negative when over limit)",
+	})
+	availableCredit!: number;
+
+	@ApiPropertyOptional({
+		example: "2026-11-04T00:00:00.000Z",
+		description: "Frozen payment due date of the latest statement (ISO) or null",
+	})
+	paymentDueDate!: string | null;
 }
 
 class LoanSummaryDto implements LoanSummary {
