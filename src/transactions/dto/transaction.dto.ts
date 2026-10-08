@@ -10,6 +10,7 @@ import {
 	IsOptional,
 	IsString,
 	MaxLength,
+	Max,
 	Min,
 } from "class-validator";
 import { PERIODS } from "../../common/utils/period.util";
@@ -30,6 +31,17 @@ enum TransactionSortBy {
 enum SortOrder {
 	asc = "asc",
 	desc = "desc",
+}
+
+enum InstallmentPlanType {
+	MSI = "MSI",
+	MSCI = "MSCI",
+}
+
+enum CommissionType {
+	ANNUAL_FEE = "ANNUAL_FEE",
+	LATE_PAYMENT = "LATE_PAYMENT",
+	CASH_ADVANCE = "CASH_ADVANCE",
 }
 
 export class CreateTransactionDto {
@@ -88,6 +100,44 @@ export class CreateTransactionDto {
 	@IsOptional()
 	@IsDateString()
 	date?: string;
+
+	@ApiPropertyOptional({
+		example: 12,
+		description: "Number of months for MSI/MSCI installment plan (1-36)",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	@Max(36)
+	msiMonths?: number;
+
+	@ApiPropertyOptional({
+		enum: InstallmentPlanType,
+		example: "MSI",
+		description: "Installment plan type (MSI = sin intereses, MSCI = con intereses)",
+	})
+	@IsOptional()
+	@IsEnum(InstallmentPlanType)
+	msiType?: InstallmentPlanType;
+
+	@ApiPropertyOptional({
+		example: 0.12,
+		description: "Promotional interest rate for MSCI plans (e.g. 0.12 = 12%)",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber()
+	msiRate?: number;
+
+	@ApiPropertyOptional({
+		enum: CommissionType,
+		example: "ANNUAL_FEE",
+		description: "Commission type for typed EXPENSE transactions (ANNUAL_FEE, LATE_PAYMENT, CASH_ADVANCE)",
+	})
+	@IsOptional()
+	@IsEnum(CommissionType)
+	commissionType?: CommissionType;
 }
 
 export class UpdateTransactionDto {
@@ -177,6 +227,19 @@ export class TransactionResponseDto {
 
 	@ApiProperty({ example: "2026-07-28T12:00:00.000Z", description: "Last update date" })
 	updatedAt!: Date;
+
+	@ApiPropertyOptional({
+		example: "stmt-uuid",
+		description: "Linked card statement ID (set by statement generation, read-only)",
+	})
+	statementId?: string | null;
+
+	@ApiPropertyOptional({
+		enum: CommissionType,
+		example: "ANNUAL_FEE",
+		description: "Commission type (null for regular transactions)",
+	})
+	commissionType?: CommissionType | null;
 }
 
 export class TransactionsInfoDto {

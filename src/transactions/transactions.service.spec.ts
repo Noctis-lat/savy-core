@@ -376,6 +376,210 @@ describe("TransactionsService — over-limit validation (create)", () => {
 	});
 });
 
+// ─── InstallmentPlan Creation (T-037) ───────────────────────────────────
+//
+// Spec: installment-plans/spec.md
+// MSI: monthlyAmount = amount / msiMonths, interestRate = null
+// MSCI: monthlyAmount via calculateMsciMonthlyAmount, interestRate = rate
+
+describe("TransactionsService — installment plan creation (create)", () => {
+	let service: TransactionsService;
+	let prisma: {
+		account: Record<string, jest.Mock>;
+		transaction: Record<string, jest.Mock>;
+		category: Record<string, jest.Mock>;
+		creditCard: Record<string, jest.Mock>;
+		installmentPlan: Record<string, jest.Mock>;
+		$transaction: jest.Mock;
+	};
+	let configService: { get: jest.Mock };
+	let calcService: { calculateMsciMonthlyAmount: jest.Mock };
+
+	function setupCreateMocksForPlan(opts: {
+		amount: number;
+		creditCard?: { creditLimit: Prisma.Decimal; overLimitTolerance: Prisma.Decimal } | null;
+	}) {
+		const account = {
+			id: "acc-credit",
+			type: "CREDIT",
+			balance: new Decimal(0),
+			profileId: "p1",
+		};
+		const tx: Record<string, Record<string, jest.Mock>> = {};
+		tx.account = {
+			findFirst: jest.fn().mockResolvedValue(account),
+			update: jest.fn().mockResolvedValue(account),
+		};
+		tx.transaction = {
+			create: jest.fn().mockResolvedValue({
+				id: "tx-new",
+				accountId: account.id,
+				type: "EXPENSE",
+				amount: new Decimal(opts.amount),
+			}),
+		};
+		tx.category = { findFirst: jest.fn().mockResolvedValue(null) };
+		tx.creditCard = {
+			findFirst: jest.fn().mockResolvedValue(
+				opts.creditCard ?? {
+					creditLimit: new Decimal(100000),
+					overLimitTolerance: new Decimal(0),
+				},
+			),
+		};
+		tx.installmentPlan = { create: jest.fn().mockResolvedValue({ id: "plan-1" }) };
+		prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
+			return cb(tx);
+		});
+		return tx;
+	}
+
+	beforeEach(async () => {
+		configService = { get: jest.fn() };
+		configService.get.mockImplementation((key: string) => {
+			if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "true";
+			return undefined;
+		});
+		calcService = {
+			calculateMsciMonthlyAmount: jest.fn().mockReturnValue(new Decimal(560)),
+		};
+
+		prisma = {
+			account: {},
+			transaction: {},
+			category: {},
+			creditCard: {},
+			installmentPlan: {},
+			$transaction: jest.fn(),
+		};
+
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [
+				TransactionsService,
+				{ provide: PrismaService, useValue: prisma },
+				{ provide: ConfigService, useValue: configService },
+				{ provide: CreditCalculationService, useValue: calcService },
+			],
+		}).compile();
+		service = module.get(TransactionsService);
+	});
+
+	it("(1) MSI 12 months on 6000 → plan created with type MSI, monthlyAmount 500, interestRate null", async () => {
+		const tx = setupCreateMocksForPlan({ amount: 6000 });
+
+		const dto = {
+			accountId: "acc-credit",
+			destinationAccountId: null,
+			categoryId: undefined,
+			type: "EXPENSE" as TxType,
+			amount: 6000,
+			description: "MSI purchase",
+			note: undefined,
+			date: undefined,
+			msiMonths: 12,
+			msiType: "MSI" as const,
+			msiRate: undefined,
+			commissionType: undefined,
+		} as unknown as CreateTransactionDto;
+
+		await service.create("p1", dto);
+
+		expect(tx.installmentPlan.create).toHaveBeenCalledTimes(1);
+		const planData = tx.installmentPlan.create.mock.calls[0][0].data;
+		expect(planData.transactionId).toBe("tx-new");
+		expect(planData.type).toBe("MSI");
+		expect(planData.totalMonths).toBe(12);
+		expect(planData.currentMonth).toBe(0);
+		expect(new Decimal(planData.monthlyAmount).toString()).toBe("500");
+		expect(planData.interestRate).toBeNull();
+		expect(planData.status).toBe("ACTIVE");
+	});
+
+	it("(2) MSCI 12 months on 6000 at 0.12 → monthlyAmount via calc service, interestRate stored", async () => {
+		const tx = setupCreateMocksForPlan({ amount: 6000 });
+
+		const dto = {
+			accountId: "acc-credit",
+			destinationAccountId: null,
+			categoryId: undefined,
+			type: "EXPENSE" as TxType,
+			amount: 6000,
+			description: "MSCI purchase",
+			note: undefined,
+			date: undefined,
+			msiMonths: 12,
+			msiType: "MSCI" as const,
+			msiRate: 0.12,
+			commissionType: undefined,
+		} as unknown as CreateTransactionDto;
+
+		await service.create("p1", dto);
+
+		expect(calcService.calculateMsciMonthlyAmount).toHaveBeenCalledTimes(1);
+		const calcArgs = calcService.calculateMsciMonthlyAmount.mock.calls[0];
+		expect(new Decimal(calcArgs[0]).toString()).toBe("6000");
+		expect(new Decimal(calcArgs[1]).toString()).toBe("0.12");
+		expect(calcArgs[2]).toBe(12);
+
+		expect(tx.installmentPlan.create).toHaveBeenCalledTimes(1);
+		const planData = tx.installmentPlan.create.mock.calls[0][0].data;
+		expect(planData.type).toBe("MSCI");
+		expect(planData.interestRate).toBeDefined(); // not null for MSCI
+		expect(planData.status).toBe("ACTIVE");
+	});
+
+	it("(3) no msiMonths → no installmentPlan.create call", async () => {
+		const tx = setupCreateMocksForPlan({ amount: 1000 });
+
+		const dto = {
+			accountId: "acc-credit",
+			destinationAccountId: null,
+			categoryId: undefined,
+			type: "EXPENSE" as TxType,
+			amount: 1000,
+			description: "regular purchase",
+			note: undefined,
+			date: undefined,
+			msiMonths: undefined,
+			msiType: undefined,
+			msiRate: undefined,
+			commissionType: undefined,
+		} as unknown as CreateTransactionDto;
+
+		await service.create("p1", dto);
+
+		expect(tx.installmentPlan.create).not.toHaveBeenCalled();
+	});
+
+	it("(4) flag off → no plan created even with msiMonths", async () => {
+		configService.get.mockImplementation((key: string) => {
+			if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "false";
+			return undefined;
+		});
+
+		const tx = setupCreateMocksForPlan({ amount: 6000 });
+
+		const dto = {
+			accountId: "acc-credit",
+			destinationAccountId: null,
+			categoryId: undefined,
+			type: "EXPENSE" as TxType,
+			amount: 6000,
+			description: "MSI purchase but flag off",
+			note: undefined,
+			date: undefined,
+			msiMonths: 12,
+			msiType: "MSI" as const,
+			msiRate: undefined,
+			commissionType: undefined,
+		} as unknown as CreateTransactionDto;
+
+		await service.create("p1", dto);
+
+		expect(tx.installmentPlan.create).not.toHaveBeenCalled();
+	});
+});
+
 describe("QueryTransactionsDto validation", () => {
 	it("rejects an invalid sortBy value", async () => {
 		const instance = plainToInstance(QueryTransactionsDto, { sortBy: "invalid" });

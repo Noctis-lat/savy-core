@@ -204,8 +204,14 @@ export class TransactionsService {
 					description: dto.description,
 					note: dto.note,
 					date: dto.date ? new Date(dto.date) : new Date(),
+					commissionType: dto.commissionType ?? null,
 				},
 			});
+
+			// Installment plan creation (gated by feature flag)
+			if (dto.msiMonths && dto.msiType) {
+				await this.createInstallmentPlan(tx, transaction.id, dto);
+			}
 
 			await this.applyBalance(
 				tx,
@@ -469,5 +475,60 @@ export class TransactionsService {
 
 	private isReactiveEnabled(): boolean {
 		return this.configService.get<string>("CREDIT_CARD_REACTIVE_ENABLED") === "true";
+	}
+
+	/**
+	 * Creates an InstallmentPlan linked to the transaction when msiMonths
+	 * and msiType are provided. Gated by the feature flag.
+	 *
+	 * MSI: monthlyAmount = amount / msiMonths, interestRate = null
+	 * MSCI: monthlyAmount via calculateMsciMonthlyAmount, interestRate = msiRate
+	 *
+	 * The full purchase amount still hits account.balance (credit consumed
+	 * immediately) — this is the existing EXPENSE behavior, not changed here.
+	 */
+	private async createInstallmentPlan(
+		tx: Prisma.TransactionClient,
+		transactionId: string,
+		dto: CreateTransactionDto,
+	): Promise<void> {
+		if (!this.isReactiveEnabled()) {
+			return;
+		}
+
+		if (!dto.msiMonths || !dto.msiType) {
+			return;
+		}
+
+		const principal = new Prisma.Decimal(dto.amount);
+		let monthlyAmount: Prisma.Decimal;
+		let interestRate: Prisma.Decimal | null;
+
+		if (dto.msiType === "MSCI") {
+			const rate = new Prisma.Decimal(dto.msiRate ?? 0);
+			monthlyAmount = this.calculationService.calculateMsciMonthlyAmount(
+				principal,
+				rate,
+				dto.msiMonths,
+			);
+			interestRate = rate;
+		} else {
+			monthlyAmount = principal.div(dto.msiMonths);
+			interestRate = null;
+		}
+
+		await tx.installmentPlan.create({
+			data: {
+				transactionId,
+				type: dto.msiType,
+				totalMonths: dto.msiMonths,
+				currentMonth: 0,
+				monthlyAmount: monthlyAmount.toDecimalPlaces(2),
+				interestRate: interestRate
+					? interestRate.toDecimalPlaces(4)
+					: null,
+				status: "ACTIVE",
+			},
+		});
 	}
 }

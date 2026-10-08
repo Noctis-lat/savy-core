@@ -251,13 +251,13 @@ Chain strategy: feature-branch-chain
   - **Verification**: `bun run test src/transactions/transactions.service.spec.ts` — ALL pass
   - **TDD**: GREEN — 10 scenarios
 
-- [ ] T-037 RED: Write failing unit tests for `InstallmentPlan` creation in `TransactionsService.create`. Test: (1) MSI 12 months on 6000 → `installmentPlan.create` called with `type: MSI`, `totalMonths: 12`, `currentMonth: 0`, `monthlyAmount: 500.00`, `interestRate: null`, `status: ACTIVE`; (2) MSCI 12 months on 6000 at 0.12 → `monthlyAmount: 560.00`, `interestRate: 0.1200`; (3) no `msiMonths` → no `installmentPlan.create` call; (4) flag off → no plan created even with `msiMonths`. Verify plan created inside same `prisma.$transaction`.
+- [x] T-037 RED: Write failing unit tests for `InstallmentPlan` creation in `TransactionsService.create`. Test: (1) MSI 12 months on 6000 → `installmentPlan.create` called with `type: MSI`, `totalMonths: 12`, `currentMonth: 0`, `monthlyAmount: 500.00`, `interestRate: null`, `status: ACTIVE`; (2) MSCI 12 months on 6000 at 0.12 → `monthlyAmount: 560.00`, `interestRate: 0.1200`; (3) no `msiMonths` → no `installmentPlan.create` call; (4) flag off → no plan created even with `msiMonths`. Verify plan created inside same `prisma.$transaction`.
   - **Files**: `src/transactions/transactions.service.spec.ts` (append)
   - **Dependencies**: T-036
   - **Verification**: `bun run test src/transactions/transactions.service.spec.ts` — new tests FAIL
   - **TDD**: RED step
 
-- [ ] T-038 GREEN: Implement `createInstallmentPlan(tx, transactionId, dto)` private method. When `dto.msiMonths && dto.msiType && flag enabled`: calculate `monthlyAmount` (MSI: `amount / msiMonths`; MSCI: `CreditCalculationService.calculateMsciMonthlyAmount(amount, dto.msiRate, msiMonths)`). Call `tx.installmentPlan.create({ data: { transactionId, type, totalMonths, currentMonth: 0, monthlyAmount, interestRate, status: "ACTIVE" } })`. Run tests → pass.
+- [x] T-038 GREEN: Implement `createInstallmentPlan(tx, transactionId, dto)` private method. When `dto.msiMonths && dto.msiType && flag enabled`: calculate `monthlyAmount` (MSI: `amount / msiMonths`; MSCI: `CreditCalculationService.calculateMsciMonthlyAmount(amount, dto.msiRate, msiMonths)`). Call `tx.installmentPlan.create({ data: { transactionId, type, totalMonths, currentMonth: 0, monthlyAmount, interestRate, status: "ACTIVE" } })`. Run tests → pass.
   - **Files**: `src/transactions/transactions.service.ts`
   - **Dependencies**: T-037, T-026 (CreditCalculationService available)
   - **Verification**: `bun run test src/transactions/transactions.service.spec.ts` — ALL pass
