@@ -189,49 +189,49 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: Statement Generation (Orchestrator + Lazy Trigger)
 
-- [ ] T-027 RED: Write failing unit tests for `StatementGenerationService.generatePending`. Test scenarios with mocked `PrismaService` (tx mock) and mocked `CreditCalculationService`: (1) no-op when `CREDIT_CARD_REACTIVE_ENABLED=false`; (2) single period generation (cut date passed, no prior statement → 1 statement created with frozen fields); (3) multi-period catch-up (3 missed periods → 3 statements created); (4) idempotency (existing statement for period → skip, no duplicate); (5) cut day 31 in February → period end Feb 28; (6) no transactions in period → statement still generated with carried-forward balance. Verify `tx.cardStatement.create` called N times with `isGenerated: true`. Verify `tx.transaction.updateMany` called for linking.
+- [x] T-027 RED: Write failing unit tests for `StatementGenerationService.generatePending`. Test scenarios with mocked `PrismaService` (tx mock) and mocked `CreditCalculationService`: (1) no-op when `CREDIT_CARD_REACTIVE_ENABLED=false`; (2) single period generation (cut date passed, no prior statement → 1 statement created with frozen fields); (3) multi-period catch-up (3 missed periods → 3 statements created); (4) idempotency (existing statement for period → skip, no duplicate); (5) cut day 31 in February → period end Feb 28; (6) no transactions in period → statement still generated with carried-forward balance. Verify `tx.cardStatement.create` called N times with `isGenerated: true`. Verify `tx.transaction.updateMany` called for linking.
   - **Files**: `src/card-statements/statement-generation.service.spec.ts` (create), `src/card-statements/statement-generation.service.ts` (create — stub with empty `generatePending` returning `Promise.resolve()`)
   - **Dependencies**: T-026
   - **Verification**: `bun run test src/card-statements/statement-generation.service.spec.ts` — FAIL (RED)
   - **TDD**: RED step — 6 spec scenarios
 
-- [ ] T-028 GREEN + TRIANGULATE: Implement `StatementGenerationService.generatePending(profileId: string): Promise<void>`. Inject `PrismaService`, `CreditCalculationService`, `ConfigService`. Check feature flag → return early if false. Find all credit cards for profile. For each card: `prisma.$transaction` → find latest statement → compute missed periods (respect `CREDIT_CARD_MAX_CATCH_UP_PERIODS`) → for each period: idempotency check, query transactions by date range, link transactions via `updateMany`, calculate totals via `CreditCalculationService`, advance active installment plans (`currentMonth++`, transition to COMPLETED if reached totalMonths), create `CardStatement` with `isGenerated: true`. Run tests → pass.
+- [x] T-028 GREEN + TRIANGULATE: Implement `StatementGenerationService.generatePending(profileId: string): Promise<void>`. Inject `PrismaService`, `CreditCalculationService`, `ConfigService`. Check feature flag → return early if false. Find all credit cards for profile. For each card: `prisma.$transaction` → find latest statement → compute missed periods (respect `CREDIT_CARD_MAX_CATCH_UP_PERIODS`) → for each period: idempotency check, query transactions by date range, link transactions via `updateMany`, calculate totals via `CreditCalculationService`, advance active installment plans (`currentMonth++`, transition to COMPLETED if reached totalMonths), create `CardStatement` with `isGenerated: true`. Run tests → pass.
   - **Files**: `src/card-statements/statement-generation.service.ts`
   - **Dependencies**: T-027
   - **Verification**: `bun run test src/card-statements/statement-generation.service.spec.ts` — ALL pass
   - **TDD**: GREEN + TRIANGULATE — 6 scenarios force real orchestration logic
 
-- [ ] T-029 REFACTOR: Extract period computation helper (`computeMissedPeriods(lastStatement, cutDay, now, maxCatchUp)`) and cut-day-in-short-month helper (`getEffectiveCutDay(cutDay, year, month)`) into private methods or a pure utility. Run tests → still pass.
+- [x] T-029 REFACTOR: Extract period computation helper (`computeMissedPeriods(lastStatement, cutDay, now, maxCatchUp)`) and cut-day-in-short-month helper (`getEffectiveCutDay(cutDay, year, month)`) into private methods or a pure utility. Run tests → still pass.
   - **Files**: `src/card-statements/statement-generation.service.ts`
   - **Dependencies**: T-028
   - **Verification**: `bun run test src/card-statements/statement-generation.service.spec.ts` — ALL pass
   - **TDD**: REFACTOR step
 
-- [ ] T-030 Register `StatementGenerationService` in `CardStatementsModule` providers and exports. Import `CreditCardsModule` to get `CreditCalculationService`. Verify `bun run build`.
+- [x] T-030 Register `StatementGenerationService` in `CardStatementsModule` providers and exports. Import `CreditCardsModule` to get `CreditCalculationService`. Verify `bun run build`.
   - **Files**: `src/card-statements/card-statements.module.ts`
   - **Dependencies**: T-029
   - **Verification**: `bun run build` — no errors
   - **TDD**: No test (module wiring)
 
-- [ ] T-031 RED: Write failing unit test for `CardStatementsController.findAll` — verify it calls `statementGenerationService.generatePending(profileId)` before delegating to `cardStatementsService.findAllByProfile`. Mock both services.
+- [x] T-031 RED: Write failing unit test for `CardStatementsController.findAll` — verify it calls `statementGenerationService.generatePending(profileId)` before delegating to `cardStatementsService.findAllByProfile`. Mock both services.
   - **Files**: `src/card-statements/card-statements.controller.spec.ts` (create or extend if exists)
   - **Dependencies**: T-030
   - **Verification**: `bun run test src/card-statements/card-statements.controller.spec.ts` — FAIL (RED)
   - **TDD**: RED step
 
-- [ ] T-032 GREEN: Modify `CardStatementsController.findAll` to inject `StatementGenerationService` and call `generatePending(profileId)` before `findAllByProfile`. Run test → pass.
+- [x] T-032 GREEN: Modify `CardStatementsController.findAll` to inject `StatementGenerationService` and call `generatePending(profileId)` before `findAllByProfile`. Run test → pass.
   - **Files**: `src/card-statements/card-statements.controller.ts`
   - **Dependencies**: T-031
   - **Verification**: `bun run test src/card-statements/card-statements.controller.spec.ts` — pass
   - **TDD**: GREEN
 
-- [ ] T-033 Modify `CardStatementsService.create` — when feature flag is on, reject caller-supplied `balance`, `minPayment`, `noInterestPayment`, `interestAmount` (generation-only fields). When flag off, keep existing behavior. Add test for rejection when flag on.
+- [x] T-033 Modify `CardStatementsService.create` — when feature flag is on, reject caller-supplied `balance`, `minPayment`, `noInterestPayment`, `interestAmount` (generation-only fields). When flag off, keep existing behavior. Add test for rejection when flag on.
   - **Files**: `src/card-statements/card-statements.service.ts`, `src/card-statements/card-statements.service.spec.ts`
   - **Dependencies**: T-032
   - **Verification**: `bun run test src/card-statements/card-statements.service.spec.ts` — new test passes
   - **TDD**: RED (write test for rejection) → GREEN (implement guard) → verify
 
-- [ ] T-034 Modify `CardStatementDTO`s: `CardStatementResponseDto` add `paymentDueDate`, `paidAmount`, `remainingBalance`, `isGenerated`, `updatedAt`. `UpdateCardStatementDto` restrict to mutable fields only (`paidAmount`, `isPaid`); frozen fields rejected. `CreateCardStatementDto` mark calculated fields as deprecated/forbidden when flag on.
+- [x] T-034 Modify `CardStatementDTO`s: `CardStatementResponseDto` add `paymentDueDate`, `paidAmount`, `remainingBalance`, `isGenerated`, `updatedAt`. `UpdateCardStatementDto` restrict to mutable fields only (`paidAmount`, `isPaid`); frozen fields rejected. `CreateCardStatementDto` mark calculated fields as deprecated/forbidden when flag on.
   - **Files**: `src/card-statements/dto/card-statement.dto.ts`
   - **Dependencies**: T-033
   - **Verification**: `bun run build` — DTO types compile. Manual: Swagger docs show new fields.
