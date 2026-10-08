@@ -363,49 +363,49 @@ Chain strategy: feature-branch-chain
 
 ## Phase 6: Feature Flag Wiring + Integration
 
-- [ ] T-055 Add `CREDIT_CARD_REACTIVE_ENABLED=false` and `CREDIT_CARD_MAX_CATCH_UP_PERIODS=12` to `.env.example`. Document in AGENTS.md environment variables table.
+- [x] T-055 Add `CREDIT_CARD_REACTIVE_ENABLED=false` and `CREDIT_CARD_MAX_CATCH_UP_PERIODS=12` to `.env.example`. Document in AGENTS.md environment variables table.
   - **Files**: `.env.example`, `AGENTS.md` (read-only reference for existing table format — only edit env vars table section)
   - **Dependencies**: T-006
   - **Verification**: `.env.example` contains both vars. `bun run build` still passes.
   - **TDD**: No test (config file)
 
-- [ ] T-056 Verify feature flag reads in all gated paths: `StatementGenerationService.generatePending` (early return if false), `TransactionsService.validateOverLimit` (skip if false), `TransactionsService.createInstallmentPlan` (skip if false), `TransactionsService.applyPaymentToStatement` (skip if false). Use `ConfigService.get<string>("CREDIT_CARD_REACTIVE_ENABLED")` parsed to boolean. Verify `availableCredit` and `paymentDueDate` are NOT gated (always computed/returned).
+- [x] T-056 Verify feature flag reads in all gated paths: `StatementGenerationService.generatePending` (early return if false), `TransactionsService.validateOverLimit` (skip if false), `TransactionsService.createInstallmentPlan` (skip if false), `TransactionsService.applyPaymentToStatement` (skip if false). Use `ConfigService.get<string>("CREDIT_CARD_REACTIVE_ENABLED")` parsed to boolean. Verify `availableCredit` and `paymentDueDate` are NOT gated (always computed/returned).
   - **Files**: `src/card-statements/statement-generation.service.ts`, `src/transactions/transactions.service.ts`
   - **Dependencies**: T-040, T-049
   - **Verification**: `bun run build` — no errors. `bun run test` — all existing tests pass.
   - **TDD**: No new test (verification of existing gating — covered by T-035 scenario 10, T-037 scenario 4, T-039 scenario 3)
 
-- [ ] T-057 RED: Write integration test for full statement generation lifecycle: transactions → statement → interest → minPayment → paymentDueDate. Use `@nestjs/testing` module with REAL `CreditCalculationService` (not mocked) and mocked Prisma. Seed: card with cutDay=15, 3 EXPENSE transactions in period. Verify: statement created with correct `balance`, `minPayment`, `noInterestPayment`, `interestAmount`, `paymentDueDate`, `isGenerated: true`. Verify transactions linked via `statementId`.
+- [x] T-057 RED: Write integration test for full statement generation lifecycle: transactions → statement → interest → minPayment → paymentDueDate. Use `@nestjs/testing` module with REAL `CreditCalculationService` (not mocked) and mocked Prisma. Seed: card with cutDay=15, 3 EXPENSE transactions in period. Verify: statement created with correct `balance`, `minPayment`, `noInterestPayment`, `interestAmount`, `paymentDueDate`, `isGenerated: true`. Verify transactions linked via `statementId`.
   - **Files**: `src/card-statements/statement-generation.integration.spec.ts` (create)
   - **Dependencies**: T-056
   - **Verification**: `bun run test src/card-statements/statement-generation.integration.spec.ts` — FAIL (RED)
   - **TDD**: RED step — integration layer
 
-- [ ] T-058 GREEN: Fix any issues in `StatementGenerationService` integration path. Run integration test → pass. If test passes immediately (orchestrator already correct), add triangulation: second test with MSCI plan to verify mensualidad in balance + PNGI.
+- [x] T-058 GREEN: Fix any issues in `StatementGenerationService` integration path. Run integration test → pass. If test passes immediately (orchestrator already correct), add triangulation: second test with MSCI plan to verify mensualidad in balance + PNGI.
   - **Files**: `src/card-statements/statement-generation.service.ts` (if fixes needed)
   - **Dependencies**: T-057
   - **Verification**: `bun run test src/card-statements/statement-generation.integration.spec.ts` — ALL pass
   - **TDD**: GREEN + TRIANGULATE
 
-- [ ] T-059 RED: Write integration test for installment plan lifecycle: purchase with MSI 3 months → 3 statement generations → currentMonth advances 0→1→2→3, status transitions to COMPLETED on 3rd. Verify mensualidad included in each statement balance. Verify COMPLETED plan excluded from 4th statement.
+- [x] T-059 RED: Write integration test for installment plan lifecycle: purchase with MSI 3 months → 3 statement generations → currentMonth advances 0→1→2→3, status transitions to COMPLETED on 3rd. Verify mensualidad included in each statement balance. Verify COMPLETED plan excluded from 4th statement.
   - **Files**: `src/card-statements/statement-generation.integration.spec.ts` (append)
   - **Dependencies**: T-058
   - **Verification**: `bun run test src/card-statements/statement-generation.integration.spec.ts` — new test FAIL
   - **TDD**: RED step — integration layer
 
-- [ ] T-060 GREEN: Fix `StatementGenerationService` installment advancement logic if needed. Run integration test → pass.
+- [x] T-060 GREEN: Fix `StatementGenerationService` installment advancement logic if needed. Run integration test → pass.
   - **Files**: `src/card-statements/statement-generation.service.ts` (if fixes needed)
   - **Dependencies**: T-059
   - **Verification**: `bun run test src/card-statements/statement-generation.integration.spec.ts` — ALL pass
   - **TDD**: GREEN
 
-- [ ] T-061 Run full test suite: `bun run test`. Verify ALL tests pass (existing + new). Run `bun run build` — verify no TypeScript errors under strict mode. Run `bun run check` (Biome) — verify linting passes.
+- [x] T-061 Run full test suite: `bun run test`. Verify ALL tests pass (existing + new). Run `bun run build` — verify no TypeScript errors under strict mode. Run `bun run check` (Biome) — verify linting passes.
   - **Files**: None (verification only)
   - **Dependencies**: T-060
   - **Verification**: `bun run test` — 0 failures. `bun run build` — success. `bun run check` — clean.
   - **TDD**: Final verification gate — no new tests, confirms all prior TDD cycles are coherent
 
-- [ ] T-062 Manual verification: start dev server with `CREDIT_CARD_REACTIVE_ENABLED=false`. Verify: GET /api/credit-cards returns `availableCredit` (not gated). POST /api/transactions with EXPENSE over limit → accepted (no validation). GET /api/dashboard/summary → no statement generation. Then toggle to `true`: POST /api/transactions EXPENSE over limit → 400. GET /api/dashboard/summary after cut date → statement generated.
+- [ ] T-062 (PENDING-MANUAL — requires a running server and a real DB; not executed by the apply agent) Manual verification: start dev server with `CREDIT_CARD_REACTIVE_ENABLED=false`. Verify: GET /api/credit-cards returns `availableCredit` (not gated). POST /api/transactions with EXPENSE over limit → accepted (no validation). GET /api/dashboard/summary → no statement generation. Then toggle to `true`: POST /api/transactions EXPENSE over limit → 400. GET /api/dashboard/summary after cut date → statement generated.
   - **Files**: None (manual runtime check)
   - **Dependencies**: T-061
   - **Verification**: Manual confirmation of feature flag on/off behavior matches spec scenarios.
