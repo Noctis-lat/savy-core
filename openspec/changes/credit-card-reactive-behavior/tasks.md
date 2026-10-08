@@ -263,25 +263,25 @@ Chain strategy: feature-branch-chain
   - **Verification**: `bun run test src/transactions/transactions.service.spec.ts` — ALL pass
   - **TDD**: GREEN
 
-- [ ] T-039 RED: Write failing unit tests for PAYMENT waterfall to statement. Test: (1) PAYMENT on CREDIT with unpaid statement → `cardStatement.update` called with `paidAmount: { increment: amount }`, `remainingBalance` updated, `isPaid` flipped when fully paid, `updatedAt` set; (2) PAYMENT on CREDIT with no unpaid statement → no statement update (saldo a favor created); (3) flag off → no waterfall applied. Mock `CreditCalculationService.applyPaymentWaterfall` to return known `WaterfallResult`.
+- [x] T-039 RED: Write failing unit tests for PAYMENT waterfall to statement. Test: (1) PAYMENT on CREDIT with unpaid statement → `cardStatement.update` called with `paidAmount: { increment: amount }`, `remainingBalance` updated, `isPaid` flipped when fully paid, `updatedAt` set; (2) PAYMENT on CREDIT with no unpaid statement → no statement update (saldo a favor created); (3) flag off → no waterfall applied. Mock `CreditCalculationService.applyPaymentWaterfall` to return known `WaterfallResult`.
   - **Files**: `src/transactions/transactions.service.spec.ts` (append)
   - **Dependencies**: T-038
   - **Verification**: `bun run test src/transactions/transactions.service.spec.ts` — new tests FAIL
   - **TDD**: RED step
 
-- [ ] T-040 GREEN: Implement `applyPaymentToStatement(tx, destAccountId, amount)` private method. When flag enabled && destAccount.type === "CREDIT": find latest unpaid statement (`isPaid: false`, ordered by `periodEnd desc`). If none → return (saldo a favor). Query period transactions, compute category totals, call `CreditCalculationService.applyPaymentWaterfall`, update `cardStatement` with `paidAmount`, `remainingBalance`, `isPaid`, `updatedAt`. Run tests → pass.
+- [x] T-040 GREEN: Implement `applyPaymentToStatement(tx, destAccountId, amount)` private method. When flag enabled && destAccount.type === "CREDIT": find latest unpaid statement (`isPaid: false`, ordered by `periodEnd desc`). If none → return (saldo a favor). Query period transactions, compute category totals, call `CreditCalculationService.applyPaymentWaterfall`, update `cardStatement` with `paidAmount`, `remainingBalance`, `isPaid`, `updatedAt`. Run tests → pass.
   - **Files**: `src/transactions/transactions.service.ts`
   - **Dependencies**: T-039
   - **Verification**: `bun run test src/transactions/transactions.service.spec.ts` — ALL pass
   - **TDD**: GREEN
 
-- [ ] T-041 Modify `TransactionsModule` to import `CreditCardsModule` (for `CreditCalculationService` injection). Verify `bun run build`.
+- [x] T-041 Modify `TransactionsModule` to import `CreditCardsModule` (for `CreditCalculationService` injection). Verify `bun run build`.
   - **Files**: `src/transactions/transactions.module.ts`
   - **Dependencies**: T-040
   - **Verification**: `bun run build` — no errors
   - **TDD**: No test (module wiring)
 
-- [ ] T-042 Modify `CreateTransactionDto`: add `msiMonths?: number` (`@IsOptional()`, `@IsInt()`, `@Min(1)`, `@Max(36)`), `msiType?: InstallmentPlanType` (`@IsOptional()`, `@IsEnum(InstallmentPlanType)`), `msiRate?: number` (`@IsOptional()`, `@IsNumber()` — for MSCI), `commissionType?: CommissionType` (`@IsOptional()`, `@IsEnum(CommissionType)`). Modify `TransactionResponseDto`: add `statementId?: string`, `commissionType?: CommissionType`. Add `@ApiProperty` decorators with examples.
+- [x] T-042 Modify `CreateTransactionDto`: add `msiMonths?: number` (`@IsOptional()`, `@IsInt()`, `@Min(1)`, `@Max(36)`), `msiType?: InstallmentPlanType` (`@IsOptional()`, `@IsEnum(InstallmentPlanType)`), `msiRate?: number` (`@IsOptional()`, `@IsNumber()` — for MSCI), `commissionType?: CommissionType` (`@IsOptional()`, `@IsEnum(CommissionType)`). Modify `TransactionResponseDto`: add `statementId?: string`, `commissionType?: CommissionType`. Add `@ApiProperty` decorators with examples.
   - **Files**: `src/transactions/dto/transaction.dto.ts`
   - **Dependencies**: T-006
   - **Verification**: `bun run build` — DTOs compile. Swagger docs show new optional fields.

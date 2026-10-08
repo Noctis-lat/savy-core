@@ -222,6 +222,11 @@ export class TransactionsService {
 				1,
 			);
 
+			// PAYMENT waterfall: apply payment to latest unpaid statement on CREDIT dest
+			if (dto.type === "PAYMENT" && dto.destinationAccountId) {
+				await this.applyPaymentToStatement(tx, dto.destinationAccountId, dto.amount, destinationAccount);
+			}
+
 			return transaction;
 		});
 	}
@@ -528,6 +533,103 @@ export class TransactionsService {
 					? interestRate.toDecimalPlaces(4)
 					: null,
 				status: "ACTIVE",
+			},
+		});
+	}
+
+	/**
+	 * Applies a PAYMENT to the latest unpaid statement on a CREDIT account.
+	 * Uses the payment waterfall (interest → commissions → ordinary → MSI → MSCI)
+	 * to determine coverage. Updates paidAmount, remainingBalance, isPaid, updatedAt.
+	 *
+	 * If no unpaid statement exists, the payment creates a saldo a favor
+	 * (negative balance) — no statement update is made.
+	 *
+	 * Gated by CREDIT_CARD_REACTIVE_ENABLED.
+	 */
+	private async applyPaymentToStatement(
+		tx: Prisma.TransactionClient,
+		destAccountId: string,
+		amount: number,
+		destAccount: Account | null,
+	): Promise<void> {
+		if (!this.isReactiveEnabled()) {
+			return;
+		}
+
+		if (!destAccount || destAccount.type !== "CREDIT") {
+			return;
+		}
+
+		// Find the latest unpaid statement for this credit card
+		const latestUnpaid = await tx.cardStatement.findFirst({
+			where: {
+				creditCard: { accountId: destAccountId },
+				isPaid: false,
+			},
+			orderBy: { periodEnd: "desc" },
+			take: 1,
+		});
+
+		if (!latestUnpaid) {
+			// No unpaid statement — payment creates saldo a favor
+			return;
+		}
+
+		// Query period transactions to compute waterfall category totals
+		const periodTransactions = await tx.transaction.findMany({
+			where: {
+				statementId: latestUnpaid.id,
+				type: "EXPENSE",
+			},
+		});
+
+		const paymentAmount = new Prisma.Decimal(amount);
+		const interestAmount = new Prisma.Decimal(latestUnpaid.interestAmount);
+		const commissionTotal = periodTransactions
+			.filter((t) => t.commissionType !== null)
+			.reduce((sum, t) => sum.add(new Prisma.Decimal(t.amount)), new Prisma.Decimal(0));
+		const ordinaryBalance = periodTransactions
+			.filter((t) => t.commissionType === null)
+			.reduce((sum, t) => sum.add(new Prisma.Decimal(t.amount)), new Prisma.Decimal(0));
+
+		// Fetch active installment plans for mensualidad totals
+		const activePlans = await tx.installmentPlan.findMany({
+			where: {
+				transaction: { accountId: destAccountId },
+				status: "ACTIVE",
+			},
+		});
+		const msiMensualidadTotal = activePlans
+			.filter((p) => p.type === "MSI")
+			.reduce((sum, p) => sum.add(new Prisma.Decimal(p.monthlyAmount)), new Prisma.Decimal(0));
+		const msciMensualidadTotal = activePlans
+			.filter((p) => p.type === "MSCI")
+			.reduce((sum, p) => sum.add(new Prisma.Decimal(p.monthlyAmount)), new Prisma.Decimal(0));
+
+		this.calculationService.applyPaymentWaterfall({
+			paymentAmount,
+			interestAmount,
+			commissionTotal,
+			ordinaryBalance,
+			msiMensualidadTotal,
+			msciMensualidadTotal,
+		});
+
+		// Update the statement with payment tracking
+		const currentPaid = new Prisma.Decimal(latestUnpaid.paidAmount);
+		const newPaidAmount = currentPaid.add(paymentAmount);
+		const statementBalance = new Prisma.Decimal(latestUnpaid.balance);
+		const remainingBalance = statementBalance.sub(newPaidAmount);
+		const isPaid = newPaidAmount.gte(statementBalance);
+
+		await tx.cardStatement.update({
+			where: { id: latestUnpaid.id },
+			data: {
+				paidAmount: { increment: amount },
+				remainingBalance: remainingBalance.toDecimalPlaces(2),
+				isPaid,
+				updatedAt: new Date(),
 			},
 		});
 	}

@@ -93,6 +93,8 @@ describe("TransactionsService — over-limit validation (create)", () => {
 		transaction: Record<string, jest.Mock>;
 		category: Record<string, jest.Mock>;
 		creditCard: Record<string, jest.Mock>;
+		installmentPlan: Record<string, jest.Mock>;
+		cardStatement: Record<string, jest.Mock>;
 		$transaction: jest.Mock;
 	};
 	let configService: { get: jest.Mock };
@@ -139,6 +141,11 @@ describe("TransactionsService — over-limit validation (create)", () => {
 		tx.creditCard = {
 			findFirst: jest.fn().mockResolvedValue(opts.creditCard ?? null),
 		};
+		tx.installmentPlan = { create: jest.fn().mockResolvedValue({}) };
+		tx.cardStatement = {
+			findFirst: jest.fn().mockResolvedValue(null), // no unpaid statement
+			update: jest.fn().mockResolvedValue({}),
+		};
 		prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
 			return cb(tx);
 		});
@@ -158,6 +165,8 @@ describe("TransactionsService — over-limit validation (create)", () => {
 			transaction: {},
 			category: {},
 			creditCard: {},
+			installmentPlan: {},
+			cardStatement: {},
 			$transaction: jest.fn(),
 		};
 
@@ -577,6 +586,214 @@ describe("TransactionsService — installment plan creation (create)", () => {
 		await service.create("p1", dto);
 
 		expect(tx.installmentPlan.create).not.toHaveBeenCalled();
+	});
+});
+
+// ─── PAYMENT Waterfall to Statement (T-039) ─────────────────────────────
+//
+// Spec: statement-generation/spec.md (Payment Waterfall Application)
+// On PAYMENT to CREDIT account: find latest unpaid statement, apply waterfall,
+// update paidAmount/remainingBalance/isPaid/updatedAt.
+
+describe("TransactionsService — PAYMENT waterfall to statement (create)", () => {
+	let service: TransactionsService;
+	let prisma: {
+		account: Record<string, jest.Mock>;
+		transaction: Record<string, jest.Mock>;
+		category: Record<string, jest.Mock>;
+		creditCard: Record<string, jest.Mock>;
+		installmentPlan: Record<string, jest.Mock>;
+		cardStatement: Record<string, jest.Mock>;
+		$transaction: jest.Mock;
+	};
+	let configService: { get: jest.Mock };
+	let calcService: { applyPaymentWaterfall: jest.Mock };
+
+	beforeEach(async () => {
+		configService = { get: jest.fn() };
+		configService.get.mockImplementation((key: string) => {
+			if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "true";
+			return undefined;
+		});
+		calcService = {
+			applyPaymentWaterfall: jest.fn().mockReturnValue({
+				interestApplied: new Decimal(300),
+				commissionsApplied: new Decimal(200),
+				ordinaryApplied: new Decimal(100),
+				msiApplied: new Decimal(0),
+				msciApplied: new Decimal(0),
+				remainder: new Decimal(0),
+			}),
+		};
+
+		prisma = {
+			account: {},
+			transaction: {},
+			category: {},
+			creditCard: {},
+			installmentPlan: {},
+			cardStatement: {},
+			$transaction: jest.fn(),
+		};
+
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [
+				TransactionsService,
+				{ provide: PrismaService, useValue: prisma },
+				{ provide: ConfigService, useValue: configService },
+				{ provide: CreditCalculationService, useValue: calcService },
+			],
+		}).compile();
+		service = module.get(TransactionsService);
+	});
+
+	/**
+	 * Sets up a PAYMENT from a DEBIT source to a CREDIT destination.
+	 * The source account is returned first, the destination second.
+	 */
+	function setupPaymentMocks(opts: {
+		sourceBalance: Prisma.Decimal;
+		creditBalance: Prisma.Decimal;
+		unpaidStatement?: {
+			id: string;
+			balance: Prisma.Decimal;
+			paidAmount: Prisma.Decimal;
+			interestAmount: Prisma.Decimal;
+		} | null;
+		periodTransactions?: Array<{ type: string; amount: Prisma.Decimal; commissionType: string | null }>;
+	}) {
+		const sourceAccount = {
+			id: "acc-debit",
+			type: "DEBIT",
+			balance: opts.sourceBalance,
+			profileId: "p1",
+		};
+		const creditAccount = {
+			id: "acc-credit",
+			type: "CREDIT",
+			balance: opts.creditBalance,
+			profileId: "p1",
+		};
+		const tx: Record<string, Record<string, jest.Mock>> = {};
+		tx.account = {
+			findFirst: jest
+				.fn()
+				.mockResolvedValueOnce(sourceAccount)
+				.mockResolvedValueOnce(creditAccount),
+			update: jest.fn().mockResolvedValue(sourceAccount),
+		};
+		tx.transaction = {
+			create: jest.fn().mockResolvedValue({ id: "tx-payment", type: "PAYMENT" }),
+			findMany: jest.fn().mockResolvedValue(opts.periodTransactions ?? []),
+		};
+		tx.category = { findFirst: jest.fn().mockResolvedValue(null) };
+		tx.creditCard = { findFirst: jest.fn().mockResolvedValue(null) };
+		tx.installmentPlan = { create: jest.fn().mockResolvedValue({}), findMany: jest.fn().mockResolvedValue([]) };
+		tx.cardStatement = {
+			findFirst: jest.fn().mockResolvedValue(opts.unpaidStatement ?? null),
+			update: jest.fn().mockResolvedValue({}),
+		};
+		prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
+			return cb(tx);
+		});
+		return tx;
+	}
+
+	it("(1) PAYMENT on CREDIT with unpaid statement → cardStatement.update with paidAmount increment", async () => {
+		const tx = setupPaymentMocks({
+			sourceBalance: new Decimal(10000),
+			creditBalance: new Decimal(5000),
+			unpaidStatement: {
+				id: "stmt-unpaid",
+				balance: new Decimal(5000),
+				paidAmount: new Decimal(0),
+				interestAmount: new Decimal(300),
+			},
+			periodTransactions: [
+				{ type: "EXPENSE", amount: new Decimal(2000), commissionType: null },
+			],
+		});
+
+		const dto = {
+			accountId: "acc-debit",
+			destinationAccountId: "acc-credit",
+			categoryId: undefined,
+			type: "PAYMENT" as TxType,
+			amount: 600,
+			description: "payment",
+			note: undefined,
+			date: undefined,
+		} as unknown as CreateTransactionDto;
+
+		await service.create("p1", dto);
+
+		expect(tx.cardStatement.update).toHaveBeenCalledTimes(1);
+		const updateCall = tx.cardStatement.update.mock.calls[0][0];
+		expect(updateCall.where.id).toBe("stmt-unpaid");
+		expect(updateCall.data.paidAmount).toEqual({ increment: 600 });
+		// 600 paid < 5000 balance → not fully paid
+		expect(updateCall.data.isPaid).toBe(false);
+		expect(updateCall.data.remainingBalance).toBeDefined();
+		expect(updateCall.data.updatedAt).toBeDefined();
+	});
+
+	it("(2) PAYMENT on CREDIT with no unpaid statement → no statement update (saldo a favor)", async () => {
+		const tx = setupPaymentMocks({
+			sourceBalance: new Decimal(10000),
+			creditBalance: new Decimal(0),
+			unpaidStatement: null,
+		});
+
+		const dto = {
+			accountId: "acc-debit",
+			destinationAccountId: "acc-credit",
+			categoryId: undefined,
+			type: "PAYMENT" as TxType,
+			amount: 500,
+			description: "overpayment",
+			note: undefined,
+			date: undefined,
+		} as unknown as CreateTransactionDto;
+
+		await service.create("p1", dto);
+
+		expect(tx.cardStatement.update).not.toHaveBeenCalled();
+		expect(tx.cardStatement.findFirst).toHaveBeenCalledTimes(1);
+	});
+
+	it("(3) flag off → no waterfall applied to statement", async () => {
+		configService.get.mockImplementation((key: string) => {
+			if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "false";
+			return undefined;
+		});
+
+		const tx = setupPaymentMocks({
+			sourceBalance: new Decimal(10000),
+			creditBalance: new Decimal(5000),
+			unpaidStatement: {
+				id: "stmt-unpaid",
+				balance: new Decimal(5000),
+				paidAmount: new Decimal(0),
+				interestAmount: new Decimal(300),
+			},
+		});
+
+		const dto = {
+			accountId: "acc-debit",
+			destinationAccountId: "acc-credit",
+			categoryId: undefined,
+			type: "PAYMENT" as TxType,
+			amount: 600,
+			description: "payment flag off",
+			note: undefined,
+			date: undefined,
+		} as unknown as CreateTransactionDto;
+
+		await service.create("p1", dto);
+
+		expect(tx.cardStatement.update).not.toHaveBeenCalled();
+		expect(tx.cardStatement.findFirst).not.toHaveBeenCalled();
+		expect(calcService.applyPaymentWaterfall).not.toHaveBeenCalled();
 	});
 });
 
