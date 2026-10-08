@@ -1,0 +1,73 @@
+schema: spec-driven
+project: savy-core
+mode: hybrid
+persistence:
+  engram_project: savy-core
+  artifact_store: hybrid
+delivery_strategy: ask-on-risk
+review_policy: 400 changed lines
+
+context: |
+  Savy personal finance REST API.
+  Stack: NestJS 11 + TypeScript 5.9 (strict, CommonJS) + Prisma 7 (@prisma/adapter-pg, client in src/generated/prisma) + Supabase Auth + PostgreSQL (Supabase hosted).
+  Package manager: bun (never npm/yarn).
+  Architecture: domain modules under src/{domain}/ (module/controller/service/dto), PrismaModule global, AuthModule (Supabase GoTrue admin + passport-jwt with jwks-rsa ES256).
+  Modules complete: prisma, auth, profiles, accounts.
+  Modules implemented (per src/ scan): transactions, categories, budgets, savings-goals, credit-cards, card-statements, loans, banks, income-sources, recurring-expenses, dashboard, common.
+  Money: Decimal(12,2). Rates: Decimal(5,4). IDs: uuid. Soft delete via isActive. Cascade on user-owned resources.
+  Testing: Jest (unit + e2e), @nestjs/testing, supertest. ts-jest transform.
+  Quality: Biome (tabs, double quotes, 100 cols, semicolons), named exports only, no `any`, import type for types.
+  Conventions reference: AGENTS.md (authoritative), savy-planning.md (product planning).
+
+strict_tdd: true
+
+testing:
+  projects:
+    - path: "."
+      stack: "NestJS 11 + TypeScript 5.9 (CommonJS) + Prisma 7 + Supabase"
+      unit_command: "bun run test"
+      e2e_command: "bun run test:e2e"
+      coverage_command: "bun run test:cov"
+      framework: "Jest 30 + ts-jest + @nestjs/testing + supertest"
+  layers:
+    unit: true
+    integration: true
+    e2e: true
+  coverage: true
+  coverage_threshold: 0
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Reference savy-planning.md for product context
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Scope all queries by profileId from @CurrentUser()
+    - Money fields use Decimal, never Float
+  design:
+    - Document architecture decisions with rationale
+    - Follow existing domain module structure (module/controller/service/dto)
+    - Never add "type": "module" to package.json (CommonJS requirement)
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    guidelines:
+      - Follow existing code patterns in src/{domain}/
+      - Use bun, never npm or yarn
+      - Named exports only, no default exports
+      - No `any` — use Prisma-generated types
+      - import type for type-only imports
+      - No .js extensions on relative imports (CommonJS)
+    tdd: true
+    test_command: "bun run test"
+  verify:
+    test_command: "bun run test"
+    e2e_command: "bun run test:e2e"
+    build_command: "bun run build"
+    coverage_command: "bun run test:cov"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+    - Never delete archived changes (audit trail)

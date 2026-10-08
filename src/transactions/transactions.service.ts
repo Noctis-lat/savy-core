@@ -1,3 +1,4 @@
+import { ConfigService } from "@nestjs/config";
 import {
 	BadRequestException,
 	Injectable,
@@ -6,10 +7,11 @@ import {
 } from "@nestjs/common";
 import type { Period } from "../common/utils/period.util";
 import { computePeriodRange, PERIODS } from "../common/utils/period.util";
+import { CreditCalculationService } from "../credit-cards/calculations/credit-calculation.service";
+import { Prisma } from "../generated/prisma/client";
 import type {
 	Account,
 	AccountType,
-	Prisma,
 	Transaction,
 	TransactionType,
 } from "../generated/prisma/client";
@@ -25,7 +27,11 @@ const LIABILITY_TYPES: AccountType[] = ["CREDIT", "LOAN"];
 
 @Injectable()
 export class TransactionsService {
-	constructor(private readonly prisma: PrismaService) {}
+	constructor(
+		private readonly prisma: PrismaService,
+		private readonly configService: ConfigService,
+		private readonly calculationService: CreditCalculationService,
+	) {}
 
 	async findAllByProfile(
 		profileId: string,
@@ -168,7 +174,7 @@ export class TransactionsService {
 
 	async create(profileId: string, dto: CreateTransactionDto): Promise<Transaction> {
 		return this.prisma.$transaction(async (tx) => {
-			await this.validateAccountOwnership(tx, dto.accountId, profileId);
+			const account = await this.validateAccountOwnership(tx, dto.accountId, profileId);
 			this.validateTypeRules(dto.type, dto.destinationAccountId);
 
 			let destinationAccount: Account | null = null;
@@ -182,6 +188,11 @@ export class TransactionsService {
 			}
 
 			await this.validateCategoryOwnership(tx, dto.categoryId, profileId, dto.type);
+
+			// Over-limit validation: EXPENSE on CREDIT accounts (gated by feature flag)
+			if (dto.type === "EXPENSE") {
+				await this.validateOverLimit(tx, dto.accountId, dto.amount, account);
+			}
 
 			const transaction = await tx.transaction.create({
 				data: {
@@ -407,5 +418,56 @@ export class TransactionsService {
 				`Category type ${category.type} does not match transaction type ${type}`,
 			);
 		}
+	}
+
+	// ── Credit card reactive behavior ────────────────────────────────────
+
+	/**
+	 * Validates that an EXPENSE on a CREDIT account does not exceed the
+	 * credit limit plus tolerance. Skipped when the feature flag is off.
+	 *
+	 * Saldo a favor (negative balance) naturally reduces the effective debt:
+	 * balance + amount is the check, and a negative balance means the result
+	 * is lower.
+	 */
+	private async validateOverLimit(
+		tx: Prisma.TransactionClient,
+		accountId: string,
+		amount: number,
+		account: Account,
+	): Promise<void> {
+		if (!this.isReactiveEnabled()) {
+			return;
+		}
+
+		if (account.type !== "CREDIT") {
+			return;
+		}
+
+		const creditCard = await tx.creditCard.findFirst({
+			where: { accountId },
+		});
+		if (!creditCard) {
+			return;
+		}
+
+		const currentBalance = new Prisma.Decimal(account.balance);
+		const creditLimit = new Prisma.Decimal(creditCard.creditLimit);
+		const tolerance = new Prisma.Decimal(creditCard.overLimitTolerance);
+		const txAmount = new Prisma.Decimal(amount);
+
+		const resultingBalance = currentBalance.add(txAmount);
+		const maxAllowed = creditLimit.add(tolerance);
+
+		if (resultingBalance.gt(maxAllowed)) {
+			throw new BadRequestException(
+				`Transaction of ${amount} exceeds available credit. ` +
+					`Current balance: ${currentBalance}, credit limit: ${creditLimit}, tolerance: ${tolerance}.`,
+			);
+		}
+	}
+
+	private isReactiveEnabled(): boolean {
+		return this.configService.get<string>("CREDIT_CARD_REACTIVE_ENABLED") === "true";
 	}
 }
