@@ -15,12 +15,16 @@ import {
 	QueryCardStatementsDto,
 	UpdateCardStatementDto,
 } from "./dto/card-statement.dto";
+import { StatementGenerationService } from "./statement-generation.service";
 
 @ApiTags("card-statements")
 @ApiBearerAuth()
 @Controller("card-statements")
 export class CardStatementsController {
-	constructor(private readonly cardStatementsService: CardStatementsService) {}
+	constructor(
+		private readonly cardStatementsService: CardStatementsService,
+		private readonly statementGenerationService: StatementGenerationService,
+	) {}
 
 	@Get()
 	@ApiOperation({ summary: "List all card statements for the current user with optional filters" })
@@ -28,6 +32,8 @@ export class CardStatementsController {
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(500, "Internal server error")
 	async findAll(@CurrentUser() profile: Profile, @Query() query: QueryCardStatementsDto) {
+		// Lazy statement generation: generate any pending statements before reading
+		await this.statementGenerationService.generatePending(profile.id);
 		return this.cardStatementsService.findAllByProfile(profile.id, {
 			creditCardId: query.creditCardId,
 			isPaid: query.isPaid === undefined ? undefined : query.isPaid === "true",
