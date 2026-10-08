@@ -40,12 +40,37 @@ export class CreateCreditCardDto {
 	@Max(31)
 	cutDay!: number;
 
-	@ApiProperty({ example: 25, description: "Payment day of the month (1-31)" })
+	@ApiPropertyOptional({
+		example: 20,
+		description: "Payment due days offset from cut day (replaces paymentDay). Default 20.",
+	})
+	@IsOptional()
 	@Type(() => Number)
 	@IsInt()
 	@Min(1)
 	@Max(31)
-	paymentDay!: number;
+	paymentDueDays?: number;
+
+	@ApiPropertyOptional({
+		example: 25,
+		description: "Deprecated: fixed payment day of the month (1-31). Use paymentDueDays instead.",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	@Max(31)
+	paymentDay?: number;
+
+	@ApiPropertyOptional({
+		example: 0,
+		description: "Over-limit tolerance (amount above credit limit allowed for EXPENSE). Default 0.",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber()
+	@Min(0)
+	overLimitTolerance?: number;
 
 	@ApiProperty({ example: 0.36, description: "Annual interest rate as decimal (0.36 = 36%)" })
 	@Type(() => Number)
@@ -81,13 +106,37 @@ export class UpdateCreditCardDto {
 	@Max(31)
 	cutDay?: number;
 
-	@ApiPropertyOptional({ example: 25, description: "Payment day of the month (1-31)" })
+	@ApiPropertyOptional({
+		example: 20,
+		description: "Payment due days offset from cut day (replaces paymentDay). Default 20.",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	@Max(31)
+	paymentDueDays?: number;
+
+	@ApiPropertyOptional({
+		example: 25,
+		description: "Deprecated: fixed payment day of the month (1-31). Use paymentDueDays instead.",
+	})
 	@IsOptional()
 	@Type(() => Number)
 	@IsInt()
 	@Min(1)
 	@Max(31)
 	paymentDay?: number;
+
+	@ApiPropertyOptional({
+		example: 0,
+		description: "Over-limit tolerance amount. Default 0.",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsNumber()
+	@Min(0)
+	overLimitTolerance?: number;
 
 	@ApiPropertyOptional({ example: 0.36, description: "Annual interest rate as decimal" })
 	@IsOptional()
@@ -117,14 +166,44 @@ export class CreditCardResponseDto {
 	@ApiProperty({ example: 15, description: "Cut day of the month" })
 	cutDay!: number;
 
-	@ApiProperty({ example: 25, description: "Payment day of the month" })
-	paymentDay!: number;
+	@ApiPropertyOptional({
+		example: 20,
+		description: "Payment due days offset from cut day (replaces deprecated paymentDay)",
+	})
+	paymentDueDays?: number;
+
+	@ApiPropertyOptional({
+		example: 25,
+		description: "Deprecated: fixed payment day of the month. Use paymentDueDays instead.",
+	})
+	paymentDay?: number;
+
+	@ApiPropertyOptional({ example: 0, description: "Over-limit tolerance amount" })
+	overLimitTolerance?: number;
 
 	@ApiProperty({ example: 0.36, description: "Annual interest rate as decimal" })
 	interestRate!: number;
 
 	@ApiProperty({ example: 12, description: "Number of months without interest" })
 	noInterestMonths!: number;
+
+	@ApiProperty({
+		example: "7000.00",
+		description: "Available credit (creditLimit - account.balance), computed at response layer",
+	})
+	availableCredit!: string;
+
+	@ApiProperty({
+		example: "3000.00",
+		description: "Current account balance (mapped from account.balance)",
+	})
+	currentBalance!: string;
+
+	@ApiPropertyOptional({
+		example: "2026-11-04T00:00:00.000Z",
+		description: "Next payment due date from latest unpaid statement, or null",
+	})
+	nextPaymentDueDate!: Date | null;
 
 	@ApiProperty({ example: "2026-07-28T20:00:00.000Z", description: "Creation date" })
 	createdAt!: Date;

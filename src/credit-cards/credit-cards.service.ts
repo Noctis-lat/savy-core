@@ -1,7 +1,18 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import type { CreditCard } from "../generated/prisma/client";
+import type { Account, CreditCard } from "../generated/prisma/client";
+import { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateCreditCardDto, UpdateCreditCardDto } from "./dto/credit-card.dto";
+
+type Decimal = Prisma.Decimal;
+const Decimal = Prisma.Decimal;
+
+/** Response shape with computed fields (availableCredit, currentBalance, nextPaymentDueDate). */
+export interface CreditCardWithComputed extends CreditCard {
+	availableCredit: string;
+	currentBalance: string;
+	nextPaymentDueDate: Date | null;
+}
 
 @Injectable()
 export class CreditCardsService {
@@ -13,23 +24,26 @@ export class CreditCardsService {
 			sortBy?: "createdAt" | "creditLimit";
 			order?: "asc" | "desc";
 		},
-	): Promise<CreditCard[]> {
+	): Promise<CreditCardWithComputed[]> {
 		const sortBy = filters?.sortBy ?? "createdAt";
 		const order = filters?.order ?? "desc";
-		return this.prisma.creditCard.findMany({
+		const cards = await this.prisma.creditCard.findMany({
 			where: { account: { profileId } },
+			include: { account: true },
 			orderBy: { [sortBy]: order },
 		});
+		return Promise.all((cards as unknown as Array<CreditCard & { account: Account }>).map((c) => this.toResponseDto(c, c.account)));
 	}
 
-	async findOne(id: string, profileId: string): Promise<CreditCard> {
+	async findOne(id: string, profileId: string): Promise<CreditCardWithComputed> {
 		const card = await this.prisma.creditCard.findFirst({
 			where: { id, account: { profileId } },
+			include: { account: true },
 		});
 		if (!card) {
 			throw new NotFoundException("Credit card not found");
 		}
-		return card;
+		return this.toResponseDto(card as unknown as CreditCard & { account: Account }, card.account);
 	}
 
 	async create(profileId: string, dto: CreateCreditCardDto): Promise<CreditCard> {
@@ -48,7 +62,9 @@ export class CreditCardsService {
 				accountId: dto.accountId,
 				creditLimit: dto.creditLimit,
 				cutDay: dto.cutDay,
-				paymentDay: dto.paymentDay,
+				paymentDueDays: dto.paymentDueDays ?? 20,
+				paymentDay: dto.paymentDay ?? null,
+				overLimitTolerance: dto.overLimitTolerance ?? 0,
 				interestRate: dto.interestRate,
 				noInterestMonths: dto.noInterestMonths ?? 0,
 			},
@@ -66,6 +82,36 @@ export class CreditCardsService {
 	async remove(id: string, profileId: string): Promise<void> {
 		await this.findOne(id, profileId);
 		await this.prisma.creditCard.delete({ where: { id } });
+	}
+
+	/**
+	 * Maps a CreditCard + its Account to the response DTO with computed fields.
+	 * - availableCredit = creditLimit - account.balance (Decimal, 2dp)
+	 * - currentBalance = account.balance
+	 * - nextPaymentDueDate = latest unpaid statement's paymentDueDate (null if none)
+	 *
+	 * NOT gated by feature flag — availableCredit is a pure read with no side effects.
+	 */
+	private async toResponseDto(
+		card: CreditCard,
+		account: Account,
+	): Promise<CreditCardWithComputed> {
+		const creditLimit = new Decimal(card.creditLimit.toString());
+		const balance = new Decimal(account.balance.toString());
+		const availableCredit = creditLimit.sub(balance).toDecimalPlaces(2);
+
+		const latestUnpaid = await this.prisma.cardStatement.findFirst({
+			where: { creditCardId: card.id, isPaid: false },
+			orderBy: { periodEnd: "desc" },
+			select: { paymentDueDate: true },
+		});
+
+		return {
+			...card,
+			availableCredit: availableCredit.toFixed(2),
+			currentBalance: balance.toDecimalPlaces(2).toFixed(2),
+			nextPaymentDueDate: latestUnpaid?.paymentDueDate ?? null,
+		};
 	}
 
 	private async validateAccount(accountId: string, profileId: string): Promise<void> {
