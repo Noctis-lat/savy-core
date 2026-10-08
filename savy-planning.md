@@ -61,10 +61,13 @@ Recurring income definition. Stores amount, frequency (`WEEKLY`, `BIWEEKLY`, `MO
 Recurring expense definition — the expense mirror of `IncomeSource`. Covers subscriptions (Netflix, Spotify), services (electricity, internet, rent), and any periodic expense. Distinguished by `type` enum: `SUBSCRIPTION`, `SERVICE`, `UNCLASSIFIED`. Stores amount, frequency (`WEEKLY`, `BIWEEKLY`, `MONTHLY`, `YEARLY`), billing days (`Int[]`), payment account (`accountId`), optional category, optional URL (for subscription management), color, and icon. Soft delete with `isActive`. Two delete modes: soft (cancel, keeps history) and permanent (hard delete). The system will generate `EXPENSE` transactions on the payment account when billing days are reached (reactive behavior pending implementation).
 
 **CreditCard**
-Credit card details, 1:1 extension of an Account of type `CREDIT`. Stores credit limit, cut day, payment day, annual interest rate (as decimal: `0.3600 = 36%`), and interest-free months. Generates CardStatements.
+Credit card details, 1:1 extension of an Account of type `CREDIT`. Stores credit limit, cut day, payment due offset (`paymentDueDays`, default 20 days after the cut; replaces the deprecated `paymentDay`), over-limit tolerance, annual interest rate (as decimal: `0.3600 = 36%`), and interest-free months. Generates CardStatements lazily. Responses include the computed `availableCredit` (`creditLimit - account.balance`).
 
 **CardStatement**
-Statement generated for a billing period of a CreditCard. Contains period balance, minimum payment, no-interest payment, interest amount, and paid status (`isPaid`).
+Statement generated for a billing period of a CreditCard. Contains period balance, minimum payment, no-interest payment (PNGI), interest amount (IVA included), payment due date (next business day, Mexican holidays honored), payment progress (`paidAmount`, `remainingBalance`, `isPaid`), and `isGenerated`. Calculated fields are frozen at generation; only payment-progress fields change afterwards.
+
+**InstallmentPlan**
+Per-purchase installment tracking for MSI (interest-free) and MSCI (with interest). 1:1 with the purchase `Transaction`. Stores type, total months, current month, monthly amount, optional interest rate, and status (`ACTIVE`, `COMPLETED`, `CANCELLED`). The full purchase consumes credit immediately; the current mensualidad is included in each statement's PNGI and the plan advances one month per generated statement.
 
 **Loan**
 Loan details, 1:1 extension of an Account of type `LOAN`. Stores principal, annual interest rate, term in months, start date, calculated monthly payment, and remaining balance.
@@ -108,8 +111,12 @@ The goal's progress is always in sync with its account balance. No separate "sav
 ### CreditCard
 
 - **Purchase** → `Transaction EXPENSE` on the card's account → balance (used credit) increases.
-- **Cut date reached** → system generates a `CardStatement` with calculated fields (minimum payment, no-interest payment, interest amount).
-- **Payment** → `Transaction PAYMENT` to the card's account → balance decreases.
+- **Cut date reached** → system lazily generates a `CardStatement` (on dashboard or card-statements read) with calculated fields (minimum payment, no-interest payment, interest amount, payment due date). Missed periods are caught up in order, up to `CREDIT_CARD_MAX_CATCH_UP_PERIODS`.
+- **Interest** → charged only when the previous statement was paid below its no-interest payment; average daily balance × rate / 360 × days, plus 16% IVA. The first statement carries no interest.
+- **Over-limit** → `EXPENSE` on a card that would exceed `creditLimit + overLimitTolerance` is rejected.
+- **MSI / MSCI purchase** → `EXPENSE` with `msiMonths`/`msiType` creates an `InstallmentPlan`.
+- **Payment** → `Transaction PAYMENT` to the card's account → balance decreases; the payment is also applied to the latest unpaid statement (`paidAmount`, `remainingBalance`, `isPaid`).
+- **Feature flag** → all of the above writes are gated by `CREDIT_CARD_REACTIVE_ENABLED` (default `false`). `availableCredit` and `paymentDueDate` reads are never gated.
 
 ### IncomeSource
 
@@ -168,8 +175,10 @@ Use `@nestjs/schedule` with cron jobs to generate periodic transactions at fixed
 | 1 | RecurringExpense reactive behavior — lazy EXPENSE transaction generation on billing day | RecurringExpensesModule, TransactionsModule | **Pending** |
 | 2 | IncomeSource reactive behavior — lazy INCOME transaction generation on payday | IncomeSourcesModule, TransactionsModule | **Pending** |
 | 3 | Loan reactive behavior — interest charge + payment processing | LoansModule, TransactionsModule | Pending |
-| 4 | CreditCard reactive behavior — statement generation on cut date | CreditCardsModule, CardStatementsModule | Pending |
+| 4 | CreditCard reactive behavior — statement generation on cut date | CreditCardsModule, CardStatementsModule | **Implemented behind `CREDIT_CARD_REACTIVE_ENABLED` (default off)** — pending manual E2E and balance-sign decision (see below) |
 | 5 | SavingsGoal reactive behavior — auto progress from account balance | SavingsGoalsModule | Pending |
+
+> **CreditCard reactive — open items**: (1) the Banxico payment waterfall order and the simplified MSCI amortization are documented assumptions (`// ASSUMPTION — TODO` in `CreditCalculationService`). (2) Sign convention: the reactive logic and specs treat a positive CREDIT `account.balance` as debt, but `TransactionsService.applyBalance` still decrements the source balance on `EXPENSE` for every account type and `prisma/seed.ts` stores CREDIT debt as a negative balance (e.g. `-8500`). Decide and align before enabling the flag in production.
 
 > Priority order is a suggestion based on dependency chains. The actual order may change based on frontend needs.
 
@@ -188,4 +197,4 @@ Use `@nestjs/schedule` with cron jobs to generate periodic transactions at fixed
 
 ---
 
-*Last updated: 2026-10-02 — Session: added RecurringExpense module*
+*Last updated: 2026-10-08 — Session: CreditCard reactive behavior implemented behind feature flag*
