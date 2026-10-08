@@ -403,6 +403,8 @@ bun run test:e2e           # Jest e2e tests
 | `DIRECT_URL` | Session pooler (migrations) | `postgresql://...:5432/postgres` |
 | `PORT` | Server port | `3001` |
 | `CORS_ORIGIN` | Allowed origins for CORS (comma-separated) | `http://localhost:3000,https://savy-web.bleakedev.workers.dev` |
+| `CREDIT_CARD_REACTIVE_ENABLED` | Feature flag for credit card reactive behavior. Only the exact string `true` enables it. Gates writes (statement generation, over-limit validation, InstallmentPlan creation, PAYMENT waterfall). Reads (`availableCredit`, `paymentDueDate`) are never gated. Default `false` | `false` |
+| `CREDIT_CARD_MAX_CATCH_UP_PERIODS` | Max missed statement periods generated in one lazy catch-up. Falls back to `12` when unset or invalid | `12` |
 
 All variables are in `.env` (gitignored). Use `.env.example` as a template.
 
