@@ -157,9 +157,15 @@ describe("StatementGenerationService", () => {
 			tx.cardStatement = {
 				findFirst: jest.fn().mockResolvedValue({
 					periodEnd: new Date(2026, 6, 15), // July 15
+					paidAmount: new Decimal(0),
+					noInterestPayment: new Decimal(1000),
 				}),
 				findUnique: jest.fn().mockResolvedValue(null),
-				create: jest.fn().mockResolvedValue({ id: "stmt-new" }),
+				create: jest.fn().mockResolvedValue({
+					id: "stmt-new",
+					paidAmount: new Decimal(0),
+					noInterestPayment: new Decimal(1000),
+				}),
 			};
 			tx.transaction = {
 				findMany: jest.fn().mockResolvedValue([]),

@@ -19,6 +19,12 @@ interface CreditCardForGeneration {
 	paymentDueDays: number | null;
 }
 
+/** Minimum shape of the statement preceding a period (drives the interest trigger). */
+interface PreviousStatement {
+	paidAmount: Decimal;
+	noInterestPayment: Decimal;
+}
+
 interface Period {
 	periodStart: Date;
 	periodEnd: Date;
@@ -87,8 +93,9 @@ export class StatementGenerationService {
 				);
 			}
 
+			let previous: PreviousStatement | null = lastStatement;
 			for (const period of periods) {
-				await this.generatePeriod(tx, card, period);
+				previous = await this.generatePeriod(tx, card, period, previous);
 			}
 		});
 	}
@@ -96,12 +103,17 @@ export class StatementGenerationService {
 	/**
 	 * Generates a single statement for one period. Idempotent: if a statement
 	 * already exists for (creditCardId, periodStart), it is skipped.
+	 *
+	 * Returns the statement that precedes the next period (the existing one when
+	 * skipped, the newly created one otherwise) so the caller can evaluate the
+	 * conditional interest trigger for the following period.
 	 */
 	private async generatePeriod(
 		tx: Prisma.TransactionClient,
 		card: CreditCardForGeneration,
 		period: Period,
-	): Promise<void> {
+		previous: PreviousStatement | null,
+	): Promise<PreviousStatement | null> {
 		// Idempotency check — DB unique constraint is the safety net
 		const existing = await tx.cardStatement.findUnique({
 			where: {
@@ -112,24 +124,40 @@ export class StatementGenerationService {
 			},
 		});
 		if (existing) {
-			return;
+			return existing;
 		}
 
-		// Fetch account balance at period end (carried-forward balance)
-		const account = await tx.account.findFirst({
-			where: { id: card.accountId },
-			select: { balance: true },
-		});
-		const startingBalance = account?.balance ?? new Decimal(0);
+		// Transactions that move this card's debt: its own charges and payments received.
+		const involvesCard = [
+			{ accountId: card.accountId },
+			{ destinationAccountId: card.accountId, type: "PAYMENT" as const },
+		];
 
-		// Query transactions in the period that are not yet linked to a statement
+		// Unlinked transactions inside the period
 		const periodTransactions = await tx.transaction.findMany({
 			where: {
-				accountId: card.accountId,
+				OR: involvesCard,
 				date: { gte: period.periodStart, lte: period.periodEnd },
 				statementId: null,
 			},
 		});
+
+		// account.balance is the CURRENT balance. Roll it back over everything dated
+		// after the cut to get the balance at period end, then over the period itself
+		// to get the opening balance for the average daily balance walk.
+		const account = await tx.account.findFirst({
+			where: { id: card.accountId },
+			select: { balance: true },
+		});
+		const laterTransactions = await tx.transaction.findMany({
+			where: { OR: involvesCard, date: { gt: period.periodEnd } },
+		});
+		const statementBalance = new Decimal(account?.balance ?? 0)
+			.sub(this.netDebtEffect(laterTransactions, card.accountId))
+			.toDecimalPlaces(2);
+		const startingBalance = statementBalance.sub(
+			this.netDebtEffect(periodTransactions, card.accountId),
+		);
 
 		// Calculate totals via the pure calculation engine
 		const avgDailyBalance = this.calculationService.calculateAverageDailyBalance(
@@ -139,36 +167,47 @@ export class StatementGenerationService {
 			startingBalance,
 		);
 
-		const interestResult = this.calculationService.calculateInterest({
-			averageDailyBalance: avgDailyBalance,
-			annualRate: card.interestRate,
-			periodDays: this.daysInPeriod(period.periodStart, period.periodEnd),
-		});
+		// Interest accrues only when the previous period was not paid in full.
+		// The first statement has no previous period, so it carries no interest.
+		const interestTotal = this.shouldChargeInterest(previous)
+			? this.calculationService
+					.calculateInterest({
+						averageDailyBalance: avgDailyBalance,
+						annualRate: card.interestRate,
+						periodDays: this.daysInPeriod(period.periodStart, period.periodEnd),
+					})
+					.total.toDecimalPlaces(2)
+			: new Decimal(0);
 
-		// Fetch active installment plans for PNGI and mensualidad totals
+		// Active plans purchased on or before the cut feed PNGI and mensualidad totals
 		const activePlans = await tx.installmentPlan.findMany({
 			where: {
-				transaction: { accountId: card.accountId },
+				transaction: { accountId: card.accountId, date: { lte: period.periodEnd } },
 				status: "ACTIVE",
 			},
 			include: { transaction: true },
 		});
 
 		const pngi = this.calculationService.calculatePngi({
-			totalSaldoDeudor: startingBalance,
+			totalSaldoDeudor: statementBalance,
 			installmentPlans: activePlans.map((p) => ({
 				type: p.type,
-				remainingBalance: p.monthlyAmount.mul(p.totalMonths - p.currentMonth),
+				// Remaining principal; monthlyAmount would wrongly include MSCI interest
+				remainingBalance: new Decimal(p.transaction.amount)
+					.mul(p.totalMonths - p.currentMonth)
+					.div(p.totalMonths),
 				currentMensualidad: p.monthlyAmount,
 				status: p.status,
 			})),
 		});
 
+		// A saldo a favor (negative balance) owes nothing
+		const noInterestPayment = Decimal.max(pngi, 0).toDecimalPlaces(2);
 		const minPayment = this.calculationService.calculateMinimumPayment({
-			revolvingBalance: pngi,
-			periodInterest: interestResult.total,
+			revolvingBalance: Decimal.max(pngi, 0),
+			periodInterest: interestTotal,
 			creditLimit: card.creditLimit,
-			statementBalance: startingBalance,
+			statementBalance: Decimal.max(statementBalance, 0),
 		});
 
 		const paymentDueDate = this.calculationService.calculatePaymentDueDate(
@@ -182,10 +221,10 @@ export class StatementGenerationService {
 				creditCardId: card.id,
 				periodStart: period.periodStart,
 				periodEnd: period.periodEnd,
-				balance: startingBalance,
+				balance: statementBalance,
 				minPayment,
-				noInterestPayment: startingBalance,
-				interestAmount: interestResult.total,
+				noInterestPayment,
+				interestAmount: interestTotal,
 				paymentDueDate,
 				isGenerated: true,
 			},
@@ -214,6 +253,43 @@ export class StatementGenerationService {
 				});
 			}
 		}
+
+		return statement;
+	}
+
+	/**
+	 * Interest is charged only when a previous statement exists and its payment
+	 * fell short of the no-interest payment (PNGI).
+	 */
+	private shouldChargeInterest(previous: PreviousStatement | null): boolean {
+		if (!previous) {
+			return false;
+		}
+		return new Decimal(previous.paidAmount).lt(new Decimal(previous.noInterestPayment));
+	}
+
+	/**
+	 * Net effect of transactions on the card's debt (positive balance = debt):
+	 * charges on the card add debt, payments received reduce it.
+	 */
+	private netDebtEffect(
+		transactions: Array<{
+			type: string;
+			amount: Decimal;
+			accountId: string;
+			destinationAccountId: string | null;
+		}>,
+		cardAccountId: string,
+	): Decimal {
+		return transactions.reduce((sum, t) => {
+			if (t.type === "EXPENSE" && t.accountId === cardAccountId) {
+				return sum.add(t.amount);
+			}
+			if (t.type === "PAYMENT" && t.destinationAccountId === cardAccountId) {
+				return sum.sub(t.amount);
+			}
+			return sum;
+		}, new Decimal(0));
 	}
 
 	// ─── Period computation helpers (extracted in T-029) ───
