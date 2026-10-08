@@ -410,3 +410,23 @@ Chain strategy: feature-branch-chain
   - **Dependencies**: T-061
   - **Verification**: Manual confirmation of feature flag on/off behavior matches spec scenarios.
   - **TDD**: No test (manual E2E verification — spec scenarios checked by hand)
+
+## Phase 7: Sign Convention Bug Fix (CREDIT balance = positive debt)
+
+- [x] T-063 Fix `TransactionsService.applyBalance` to differentiate by account type. CREDIT/LOAN (liabilities): EXPENSE increments (more debt), INCOME decrements (refund), TRANSFER/PAYMENT origin increments, PAYMENT destination decrements. DEBIT/CASH (assets): unchanged. Pass account types from validated Account objects in create/update/remove.
+  - **Files**: `src/transactions/transactions.service.ts`, `src/transactions/transactions.service.spec.ts`
+  - **Dependencies**: T-061
+  - **Verification**: `bun run test src/transactions/transactions.service.spec.ts` — 31 pass (7 new + 24 existing)
+  - **TDD**: RED (7 tests written first, all fail) → GREEN (applyBalance type-aware) → TRIANGULATE (7 cases: CREDIT EXPENSE/PAYMENT/INCOME, DEBIT EXPENSE/INCOME, PAYMENT source, TRANSFER source CREDIT)
+
+- [x] T-064 Fix `BanksService.computeBankDetailKpis` to use type-aware assets/liabilities split instead of sign-based logic. CREDIT positive balance = liability, negative = saldo a favor (asset).
+  - **Files**: `src/banks/banks.service.ts`, `src/banks/banks.service.spec.ts`
+  - **Dependencies**: T-063
+  - **Verification**: `bun run test src/banks/banks.service.spec.ts` — 21 pass
+  - **TDD**: RED (2 tests fail with positive CREDIT balance) → GREEN (type-aware split)
+
+- [x] T-065 Flip seed data CREDIT balances from negative to positive (acc4: -8500→8500, acc7: -3200→3200). Update dashboard and banks test mocks that used negative CREDIT balances.
+  - **Files**: `prisma/seed.ts`, `src/dashboard/dashboard.service.spec.ts`, `src/banks/banks.service.spec.ts`
+  - **Dependencies**: T-064
+  - **Verification**: `bun run test` — 234 pass, `bun run build` — success, `bunx biome check .` — 3 pre-existing errors only
+  - **TDD**: RED (2 new dashboard tests for positive CREDIT netWorth) → GREEN (confirmed with existing Math.abs logic)
