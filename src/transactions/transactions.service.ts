@@ -190,7 +190,9 @@ export class TransactionsService {
 			await this.validateCategoryOwnership(tx, dto.categoryId, profileId, dto.type);
 
 			// Over-limit validation: EXPENSE on CREDIT accounts (gated by feature flag)
-			if (dto.type === "EXPENSE") {
+			// Commissions and interest charges are bank charges — they MUST be allowed
+			// to exceed the credit limit. Only validate user purchases (no commissionType).
+			if (dto.type === "EXPENSE" && !dto.commissionType) {
 				await this.validateOverLimit(tx, dto.accountId, dto.amount, account);
 			}
 
@@ -670,7 +672,7 @@ export class TransactionsService {
 			.filter((p) => p.type === "MSCI")
 			.reduce((sum, p) => sum.add(new Prisma.Decimal(p.monthlyAmount)), new Prisma.Decimal(0));
 
-		this.calculationService.applyPaymentWaterfall({
+		const waterfall = this.calculationService.applyPaymentWaterfall({
 			paymentAmount,
 			interestAmount,
 			commissionTotal,
@@ -679,9 +681,17 @@ export class TransactionsService {
 			msciMensualidadTotal,
 		});
 
+		// Only the amount actually applied by the waterfall counts as paid toward
+		// this statement. The remainder becomes saldo a favor (negative balance).
+		const actualApplied = waterfall.interestApplied
+			.add(waterfall.commissionsApplied)
+			.add(waterfall.ordinaryApplied)
+			.add(waterfall.msiApplied)
+			.add(waterfall.msciApplied);
+
 		// Update the statement with payment tracking
 		const currentPaid = new Prisma.Decimal(latestUnpaid.paidAmount);
-		const newPaidAmount = currentPaid.add(paymentAmount);
+		const newPaidAmount = currentPaid.add(actualApplied);
 		const statementBalance = new Prisma.Decimal(latestUnpaid.balance);
 		const remainingBalance = statementBalance.sub(newPaidAmount);
 		const isPaid = newPaidAmount.gte(statementBalance);
@@ -689,7 +699,7 @@ export class TransactionsService {
 		await tx.cardStatement.update({
 			where: { id: latestUnpaid.id },
 			data: {
-				paidAmount: { increment: amount },
+				paidAmount: { increment: actualApplied.toNumber() },
 				remainingBalance: remainingBalance.toDecimalPlaces(2),
 				isPaid,
 				updatedAt: new Date(),

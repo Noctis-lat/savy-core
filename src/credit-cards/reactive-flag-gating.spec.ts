@@ -128,7 +128,14 @@ describe("Reactive flag gating — transactions", () => {
 					provide: CreditCalculationService,
 					useValue: {
 						calculateMsciMonthlyAmount: jest.fn().mockReturnValue(new Decimal(560)),
-						applyPaymentWaterfall: jest.fn(),
+						applyPaymentWaterfall: jest.fn().mockReturnValue({
+							interestApplied: new Decimal(0),
+							commissionsApplied: new Decimal(0),
+							ordinaryApplied: new Decimal(0),
+							msiApplied: new Decimal(0),
+							msciApplied: new Decimal(0),
+							remainder: new Decimal(0),
+						}),
 					},
 				},
 			],

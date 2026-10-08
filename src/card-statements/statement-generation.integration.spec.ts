@@ -221,6 +221,14 @@ class FakeStore {
 					for (const t of hit) t.statementId = data.statementId;
 					return { count: hit.length };
 				},
+				create: async ({ data }: { data: Record<string, unknown> }) => {
+					const created = {
+						id: this.nextId("tx"),
+						...data,
+					} as Record<string, unknown>;
+					this.transactions.push(created as never);
+					return created;
+				},
 			},
 			installmentPlan: {
 				findMany: async ({
@@ -249,6 +257,12 @@ class FakeStore {
 			},
 			account: {
 				findFirst: async () => ({ id: CARD_ACCOUNT_ID, balance: this.accountBalance }),
+				update: async ({ data }: { data: { balance: { increment: number } } }) => {
+					if (data.balance && typeof data.balance === "object" && "increment" in data.balance) {
+						this.accountBalance = new Decimal(this.accountBalance).add(data.balance.increment);
+					}
+					return { id: CARD_ACCOUNT_ID, balance: this.accountBalance };
+				},
 			},
 		};
 	}
@@ -433,15 +447,18 @@ describe("Statement generation lifecycle (integration)", () => {
 
 		// Each period is frozen at its own cut, not at today's balance
 		expect(p1.balance.toFixed(2)).toBe("1200.00");
+		// p2: 1200 (p1) + 800 expense = 2000. Interest is charged after freeze, not included.
 		expect(p2.balance.toFixed(2)).toBe("2000.00");
-		expect(p3.balance.toFixed(2)).toBe("2000.00");
+		// p3: 2000 + 57.07 interest from p2 (materialized as transaction, incremented account balance)
+		expect(p3.balance.toFixed(2)).toBe("2057.07");
 
 		// Previous statement carried nothing to pay → no interest on period 1
 		expect(p1.interestAmount.toFixed(2)).toBe("0.00");
 		// Period 2: (16 × 1200 + 15 × 2000) / 31 × 0.001 × 31 = 49.20 × 1.16 = 57.072
 		expect(p2.interestAmount.toFixed(2)).toBe("57.07");
-		// Period 3: 2000 × 0.001 × 30 = 60.00 × 1.16
-		expect(p3.interestAmount.toFixed(2)).toBe("69.60");
+		// Period 3: balance is now 2057.07 (2000 + 57.07 interest from p2, materialized as transaction)
+		// 2057.07 × 0.001 × 30 = 61.712 × 1.16 = 71.586 → 71.59
+		expect(p3.interestAmount.toFixed(2)).toBe("71.59");
 	});
 
 	it("reports a saldo a favor as owing nothing", async () => {

@@ -323,6 +323,7 @@ enum CommissionType {
   ANNUAL_FEE
   LATE_PAYMENT
   CASH_ADVANCE
+  INTEREST_CHARGE
 }
 
 // Installment plan types: MSI (sin intereses), MSCI (con intereses)

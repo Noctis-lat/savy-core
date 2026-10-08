@@ -230,6 +230,30 @@ export class StatementGenerationService {
 			},
 		});
 
+		// Interest charge: create a traceable Transaction and increment account balance.
+		// Bank charges (interest, commissions) MUST be allowed to exceed the credit limit.
+		// This transaction is created directly via tx (not TransactionsService.create),
+		// so it bypasses validateOverLimit naturally.
+		if (interestTotal.gt(0)) {
+			await tx.transaction.create({
+				data: {
+					accountId: card.accountId,
+					type: "EXPENSE",
+					amount: interestTotal,
+					description: "Interest charge for period",
+					date: period.periodEnd,
+					commissionType: "INTEREST_CHARGE",
+					statementId: statement.id,
+				},
+			});
+
+			// Increment account balance (positive = debt, interest increases debt)
+			await tx.account.update({
+				where: { id: card.accountId },
+				data: { balance: { increment: interestTotal.toNumber() } },
+			});
+		}
+
 		// Link transactions to the generated statement
 		if (periodTransactions.length > 0) {
 			await tx.transaction.updateMany({

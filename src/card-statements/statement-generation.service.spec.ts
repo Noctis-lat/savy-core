@@ -170,6 +170,7 @@ describe("StatementGenerationService", () => {
 			tx.transaction = {
 				findMany: jest.fn().mockResolvedValue([]),
 				updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+				create: jest.fn().mockResolvedValue({ id: "tx-interest" }),
 			};
 			tx.installmentPlan = {
 				findMany: jest.fn().mockResolvedValue([]),
@@ -177,6 +178,7 @@ describe("StatementGenerationService", () => {
 			};
 			tx.account = {
 				findFirst: jest.fn().mockResolvedValue({ id: "acc-1", balance: new Decimal(5000) }),
+				update: jest.fn().mockResolvedValue({}),
 			};
 
 			prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {

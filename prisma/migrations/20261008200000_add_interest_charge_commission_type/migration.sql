@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "CommissionType" ADD VALUE 'INTEREST_CHARGE';
