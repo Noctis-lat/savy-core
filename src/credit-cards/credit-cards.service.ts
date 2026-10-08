@@ -4,7 +4,6 @@ import { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateCreditCardDto, UpdateCreditCardDto } from "./dto/credit-card.dto";
 
-type Decimal = Prisma.Decimal;
 const Decimal = Prisma.Decimal;
 
 /** Response shape with computed fields (availableCredit, currentBalance, nextPaymentDueDate). */
@@ -32,7 +31,11 @@ export class CreditCardsService {
 			include: { account: true },
 			orderBy: { [sortBy]: order },
 		});
-		return Promise.all((cards as unknown as Array<CreditCard & { account: Account }>).map((c) => this.toResponseDto(c, c.account)));
+		return Promise.all(
+			(cards as unknown as Array<CreditCard & { account: Account }>).map((c) =>
+				this.toResponseDto(c, c.account),
+			),
+		);
 	}
 
 	async findOne(id: string, profileId: string): Promise<CreditCardWithComputed> {
@@ -92,10 +95,7 @@ export class CreditCardsService {
 	 *
 	 * NOT gated by feature flag — availableCredit is a pure read with no side effects.
 	 */
-	private async toResponseDto(
-		card: CreditCard,
-		account: Account,
-	): Promise<CreditCardWithComputed> {
+	private async toResponseDto(card: CreditCard, account: Account): Promise<CreditCardWithComputed> {
 		const creditLimit = new Decimal(card.creditLimit.toString());
 		const balance = new Decimal(account.balance.toString());
 		const availableCredit = creditLimit.sub(balance).toDecimalPlaces(2);
