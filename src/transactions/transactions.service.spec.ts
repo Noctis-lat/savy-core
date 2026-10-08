@@ -1,5 +1,5 @@
-import { ConfigService } from "@nestjs/config";
 import { BadRequestException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
@@ -293,8 +293,18 @@ describe("TransactionsService — over-limit validation (create)", () => {
 		});
 		// PAYMENT needs a destination CREDIT account
 		tx.account.findFirst
-			.mockResolvedValueOnce({ id: "acc-source", type: "DEBIT", balance: new Decimal(10000), profileId: "p1" })
-			.mockResolvedValueOnce({ id: "acc-credit", type: "CREDIT", balance: new Decimal(9000), profileId: "p1" });
+			.mockResolvedValueOnce({
+				id: "acc-source",
+				type: "DEBIT",
+				balance: new Decimal(10000),
+				profileId: "p1",
+			})
+			.mockResolvedValueOnce({
+				id: "acc-credit",
+				type: "CREDIT",
+				balance: new Decimal(9000),
+				profileId: "p1",
+			});
 		tx.creditCard.findFirst = jest.fn().mockResolvedValue({
 			creditLimit: new Decimal(10000),
 			overLimitTolerance: new Decimal(0),
@@ -328,8 +338,18 @@ describe("TransactionsService — over-limit validation (create)", () => {
 			},
 		});
 		tx.account.findFirst
-			.mockResolvedValueOnce({ id: "acc-credit", type: "CREDIT", balance: new Decimal(9000), profileId: "p1" })
-			.mockResolvedValueOnce({ id: "acc-debit", type: "DEBIT", balance: new Decimal(1000), profileId: "p1" });
+			.mockResolvedValueOnce({
+				id: "acc-credit",
+				type: "CREDIT",
+				balance: new Decimal(9000),
+				profileId: "p1",
+			})
+			.mockResolvedValueOnce({
+				id: "acc-debit",
+				type: "DEBIT",
+				balance: new Decimal(1000),
+				profileId: "p1",
+			});
 
 		const dto = {
 			accountId: "acc-credit",
@@ -660,7 +680,11 @@ describe("TransactionsService — PAYMENT waterfall to statement (create)", () =
 			paidAmount: Prisma.Decimal;
 			interestAmount: Prisma.Decimal;
 		} | null;
-		periodTransactions?: Array<{ type: string; amount: Prisma.Decimal; commissionType: string | null }>;
+		periodTransactions?: Array<{
+			type: string;
+			amount: Prisma.Decimal;
+			commissionType: string | null;
+		}>;
 	}) {
 		const sourceAccount = {
 			id: "acc-debit",
@@ -688,7 +712,10 @@ describe("TransactionsService — PAYMENT waterfall to statement (create)", () =
 		};
 		tx.category = { findFirst: jest.fn().mockResolvedValue(null) };
 		tx.creditCard = { findFirst: jest.fn().mockResolvedValue(null) };
-		tx.installmentPlan = { create: jest.fn().mockResolvedValue({}), findMany: jest.fn().mockResolvedValue([]) };
+		tx.installmentPlan = {
+			create: jest.fn().mockResolvedValue({}),
+			findMany: jest.fn().mockResolvedValue([]),
+		};
 		tx.cardStatement = {
 			findFirst: jest.fn().mockResolvedValue(opts.unpaidStatement ?? null),
 			update: jest.fn().mockResolvedValue({}),
@@ -709,9 +736,7 @@ describe("TransactionsService — PAYMENT waterfall to statement (create)", () =
 				paidAmount: new Decimal(0),
 				interestAmount: new Decimal(300),
 			},
-			periodTransactions: [
-				{ type: "EXPENSE", amount: new Decimal(2000), commissionType: null },
-			],
+			periodTransactions: [{ type: "EXPENSE", amount: new Decimal(2000), commissionType: null }],
 		});
 
 		const dto = {

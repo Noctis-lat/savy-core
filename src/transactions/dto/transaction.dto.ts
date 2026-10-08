@@ -9,8 +9,8 @@ import {
 	IsNumber,
 	IsOptional,
 	IsString,
-	MaxLength,
 	Max,
+	MaxLength,
 	Min,
 } from "class-validator";
 import { PERIODS } from "../../common/utils/period.util";
@@ -133,7 +133,8 @@ export class CreateTransactionDto {
 	@ApiPropertyOptional({
 		enum: CommissionType,
 		example: "ANNUAL_FEE",
-		description: "Commission type for typed EXPENSE transactions (ANNUAL_FEE, LATE_PAYMENT, CASH_ADVANCE)",
+		description:
+			"Commission type for typed EXPENSE transactions (ANNUAL_FEE, LATE_PAYMENT, CASH_ADVANCE)",
 	})
 	@IsOptional()
 	@IsEnum(CommissionType)

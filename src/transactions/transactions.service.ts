@@ -1,20 +1,20 @@
-import { ConfigService } from "@nestjs/config";
 import {
 	BadRequestException,
 	Injectable,
 	NotFoundException,
 	UnprocessableEntityException,
 } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import type { Period } from "../common/utils/period.util";
 import { computePeriodRange, PERIODS } from "../common/utils/period.util";
 import { CreditCalculationService } from "../credit-cards/calculations/credit-calculation.service";
-import { Prisma } from "../generated/prisma/client";
 import type {
 	Account,
 	AccountType,
 	Transaction,
 	TransactionType,
 } from "../generated/prisma/client";
+import { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import type { TransactionsInfoDto } from "./dto/transaction.dto";
 import { CreateTransactionDto, UpdateTransactionDto } from "./dto/transaction.dto";
@@ -224,7 +224,12 @@ export class TransactionsService {
 
 			// PAYMENT waterfall: apply payment to latest unpaid statement on CREDIT dest
 			if (dto.type === "PAYMENT" && dto.destinationAccountId) {
-				await this.applyPaymentToStatement(tx, dto.destinationAccountId, dto.amount, destinationAccount);
+				await this.applyPaymentToStatement(
+					tx,
+					dto.destinationAccountId,
+					dto.amount,
+					destinationAccount,
+				);
 			}
 
 			return transaction;
@@ -529,9 +534,7 @@ export class TransactionsService {
 				totalMonths: dto.msiMonths,
 				currentMonth: 0,
 				monthlyAmount: monthlyAmount.toDecimalPlaces(2),
-				interestRate: interestRate
-					? interestRate.toDecimalPlaces(4)
-					: null,
+				interestRate: interestRate ? interestRate.toDecimalPlaces(4) : null,
 				status: "ACTIVE",
 			},
 		});
