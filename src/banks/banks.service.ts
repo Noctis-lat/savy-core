@@ -301,10 +301,19 @@ export class BanksService {
 		for (const account of accounts) {
 			const balance = Number(account.balance);
 
-			if (balance > 0) {
-				assets += balance;
-			} else if (balance < 0) {
-				liabilities += Math.abs(balance);
+			if (account.type === "DEBIT" || account.type === "CASH") {
+				if (balance > 0) {
+					assets += balance;
+				} else if (balance < 0) {
+					liabilities += Math.abs(balance);
+				}
+			} else if (account.type === "CREDIT") {
+				// Positive balance = debt; negative = saldo a favor (asset)
+				if (balance > 0) {
+					liabilities += balance;
+				} else if (balance < 0) {
+					assets += Math.abs(balance);
+				}
 			}
 
 			if (account.type === "LOAN" && account.loan) {

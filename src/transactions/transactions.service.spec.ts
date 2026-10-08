@@ -822,6 +822,249 @@ describe("TransactionsService — PAYMENT waterfall to statement (create)", () =
 	});
 });
 
+// ─── Sign Convention: CREDIT balance = positive debt (bug fix) ──────────
+//
+// CREDIT accounts store balance as POSITIVE = debt used.
+// EXPENSE increases debt (increment), PAYMENT (as destination) decreases debt (decrement).
+// INCOME (rare on credit, e.g. refund) decreases debt (decrement).
+// DEBIT/CASH/LOAN accounts keep the original sign convention unchanged.
+
+describe("TransactionsService — applyBalance direction by account type (sign convention fix)", () => {
+	let service: TransactionsService;
+	let prisma: {
+		account: Record<string, jest.Mock>;
+		transaction: Record<string, jest.Mock>;
+		category: Record<string, jest.Mock>;
+		creditCard: Record<string, jest.Mock>;
+		installmentPlan: Record<string, jest.Mock>;
+		cardStatement: Record<string, jest.Mock>;
+		$transaction: jest.Mock;
+	};
+	let configService: { get: jest.Mock };
+
+	beforeEach(async () => {
+		configService = { get: jest.fn() };
+		configService.get.mockImplementation((key: string) => {
+			if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "false";
+			return undefined;
+		});
+
+		prisma = {
+			account: {},
+			transaction: {},
+			category: {},
+			creditCard: {},
+			installmentPlan: {},
+			cardStatement: {},
+			$transaction: jest.fn(),
+		};
+
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [
+				TransactionsService,
+				{ provide: PrismaService, useValue: prisma },
+				{ provide: ConfigService, useValue: configService },
+				{ provide: CreditCalculationService, useValue: {} },
+			],
+		}).compile();
+		service = module.get(TransactionsService);
+	});
+
+	function setupBalanceMocks(account: { id: string; type: string; balance: Prisma.Decimal; profileId: string }) {
+		const tx: Record<string, Record<string, jest.Mock>> = {};
+		tx.account = {
+			findFirst: jest.fn().mockResolvedValue(account),
+			update: jest.fn().mockResolvedValue(account),
+		};
+		tx.transaction = {
+			create: jest.fn().mockResolvedValue({ id: "tx-1", accountId: account.id, type: "EXPENSE", amount: new Decimal(0) }),
+		};
+		tx.category = { findFirst: jest.fn().mockResolvedValue(null) };
+		tx.creditCard = { findFirst: jest.fn().mockResolvedValue(null) };
+		tx.installmentPlan = { create: jest.fn().mockResolvedValue({}) };
+		tx.cardStatement = { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn().mockResolvedValue({}) };
+		prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx));
+		return tx;
+	}
+
+	function buildDto(accountId: string, type: TxType, amount: number, destinationAccountId: string | null = null): CreateTransactionDto {
+		return {
+			accountId,
+			destinationAccountId,
+			categoryId: undefined,
+			type,
+			amount,
+			description: "test",
+			note: undefined,
+			date: undefined,
+		} as unknown as CreateTransactionDto;
+	}
+
+	// ── CREDIT: EXPENSE increments (more debt) ──
+
+	it("(1) EXPENSE on CREDIT increments balance (more debt)", async () => {
+		const tx = setupBalanceMocks({
+			id: "acc-credit",
+			type: "CREDIT",
+			balance: new Decimal(3000),
+			profileId: "p1",
+		});
+
+		await service.create("p1", buildDto("acc-credit", "EXPENSE", 500));
+
+		const updateCall = tx.account.update.mock.calls.find(
+			(c) => c[0].where.id === "acc-credit",
+		);
+		expect(updateCall).toBeDefined();
+		expect(updateCall![0].data.balance).toEqual({ increment: 500 });
+	});
+
+	// ── CREDIT: PAYMENT (as destination) decrements (less debt) ──
+
+	it("(2) PAYMENT destination CREDIT decrements balance (less debt)", async () => {
+		const sourceAccount = { id: "acc-debit", type: "DEBIT", balance: new Decimal(10000), profileId: "p1" };
+		const creditAccount = { id: "acc-credit", type: "CREDIT", balance: new Decimal(5000), profileId: "p1" };
+
+		const tx: Record<string, Record<string, jest.Mock>> = {};
+		tx.account = {
+			findFirst: jest.fn()
+				.mockResolvedValueOnce(sourceAccount)
+				.mockResolvedValueOnce(creditAccount),
+			update: jest.fn().mockResolvedValue(sourceAccount),
+		};
+		tx.transaction = { create: jest.fn().mockResolvedValue({ id: "tx-pay", type: "PAYMENT" }) };
+		tx.category = { findFirst: jest.fn().mockResolvedValue(null) };
+		tx.creditCard = { findFirst: jest.fn().mockResolvedValue(null) };
+		tx.installmentPlan = { create: jest.fn(), findMany: jest.fn().mockResolvedValue([]) };
+		tx.cardStatement = { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() };
+		prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx));
+
+		await service.create("p1", buildDto("acc-debit", "PAYMENT", 2000, "acc-credit"));
+
+		// Find the update for the credit destination account
+		const creditUpdate = tx.account.update.mock.calls.find(
+			(c) => c[0].where.id === "acc-credit",
+		);
+		expect(creditUpdate).toBeDefined();
+		expect(creditUpdate![0].data.balance).toEqual({ decrement: 2000 });
+	});
+
+	// ── CREDIT: INCOME decrements (paying down / refund) ──
+
+	it("(3) INCOME on CREDIT decrements balance (refund / paying down)", async () => {
+		const tx = setupBalanceMocks({
+			id: "acc-credit",
+			type: "CREDIT",
+			balance: new Decimal(3000),
+			profileId: "p1",
+		});
+
+		await service.create("p1", buildDto("acc-credit", "INCOME", 500));
+
+		const updateCall = tx.account.update.mock.calls.find(
+			(c) => c[0].where.id === "acc-credit",
+		);
+		expect(updateCall).toBeDefined();
+		expect(updateCall![0].data.balance).toEqual({ decrement: 500 });
+	});
+
+	// ── DEBIT: unchanged — EXPENSE decrements ──
+
+	it("(4) EXPENSE on DEBIT decrements balance (unchanged)", async () => {
+		const tx = setupBalanceMocks({
+			id: "acc-debit",
+			type: "DEBIT",
+			balance: new Decimal(10000),
+			profileId: "p1",
+		});
+
+		await service.create("p1", buildDto("acc-debit", "EXPENSE", 500));
+
+		const updateCall = tx.account.update.mock.calls.find(
+			(c) => c[0].where.id === "acc-debit",
+		);
+		expect(updateCall).toBeDefined();
+		expect(updateCall![0].data.balance).toEqual({ decrement: 500 });
+	});
+
+	// ── DEBIT: unchanged — INCOME increments ──
+
+	it("(5) INCOME on DEBIT increments balance (unchanged)", async () => {
+		const tx = setupBalanceMocks({
+			id: "acc-debit",
+			type: "DEBIT",
+			balance: new Decimal(10000),
+			profileId: "p1",
+		});
+
+		await service.create("p1", buildDto("acc-debit", "INCOME", 500));
+
+		const updateCall = tx.account.update.mock.calls.find(
+			(c) => c[0].where.id === "acc-debit",
+		);
+		expect(updateCall).toBeDefined();
+		expect(updateCall![0].data.balance).toEqual({ increment: 500 });
+	});
+
+	// ── PAYMENT source DEBIT: decrements (unchanged) ──
+
+	it("(6) PAYMENT source DEBIT decrements balance (unchanged)", async () => {
+		const sourceAccount = { id: "acc-debit", type: "DEBIT", balance: new Decimal(10000), profileId: "p1" };
+		const creditAccount = { id: "acc-credit", type: "CREDIT", balance: new Decimal(5000), profileId: "p1" };
+
+		const tx: Record<string, Record<string, jest.Mock>> = {};
+		tx.account = {
+			findFirst: jest.fn()
+				.mockResolvedValueOnce(sourceAccount)
+				.mockResolvedValueOnce(creditAccount),
+			update: jest.fn().mockResolvedValue(sourceAccount),
+		};
+		tx.transaction = { create: jest.fn().mockResolvedValue({ id: "tx-pay", type: "PAYMENT" }) };
+		tx.category = { findFirst: jest.fn().mockResolvedValue(null) };
+		tx.creditCard = { findFirst: jest.fn().mockResolvedValue(null) };
+		tx.installmentPlan = { create: jest.fn(), findMany: jest.fn().mockResolvedValue([]) };
+		tx.cardStatement = { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() };
+		prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx));
+
+		await service.create("p1", buildDto("acc-debit", "PAYMENT", 2000, "acc-credit"));
+
+		const debitUpdate = tx.account.update.mock.calls.find(
+			(c) => c[0].where.id === "acc-debit",
+		);
+		expect(debitUpdate).toBeDefined();
+		expect(debitUpdate![0].data.balance).toEqual({ decrement: 2000 });
+	});
+
+	// ── TRANSFER source CREDIT: increments (more debt on credit) ──
+
+	it("(7) TRANSFER source CREDIT increments balance (more debt)", async () => {
+		const creditAccount = { id: "acc-credit", type: "CREDIT", balance: new Decimal(5000), profileId: "p1" };
+		const debitAccount = { id: "acc-debit", type: "DEBIT", balance: new Decimal(1000), profileId: "p1" };
+
+		const tx: Record<string, Record<string, jest.Mock>> = {};
+		tx.account = {
+			findFirst: jest.fn()
+				.mockResolvedValueOnce(creditAccount)
+				.mockResolvedValueOnce(debitAccount),
+			update: jest.fn().mockResolvedValue(creditAccount),
+		};
+		tx.transaction = { create: jest.fn().mockResolvedValue({ id: "tx-tx", type: "TRANSFER" }) };
+		tx.category = { findFirst: jest.fn().mockResolvedValue(null) };
+		tx.creditCard = { findFirst: jest.fn().mockResolvedValue(null) };
+		tx.installmentPlan = { create: jest.fn(), findMany: jest.fn().mockResolvedValue([]) };
+		tx.cardStatement = { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() };
+		prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx));
+
+		await service.create("p1", buildDto("acc-credit", "TRANSFER", 2000, "acc-debit"));
+
+		const creditUpdate = tx.account.update.mock.calls.find(
+			(c) => c[0].where.id === "acc-credit",
+		);
+		expect(creditUpdate).toBeDefined();
+		expect(creditUpdate![0].data.balance).toEqual({ increment: 2000 });
+	});
+});
+
 describe("QueryTransactionsDto validation", () => {
 	it("rejects an invalid sortBy value", async () => {
 		const instance = plainToInstance(QueryTransactionsDto, { sortBy: "invalid" });

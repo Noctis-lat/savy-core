@@ -63,7 +63,7 @@ describe("BanksService (findAll filters)", () => {
 		prisma.bank.count.mockResolvedValue(1);
 		prisma.account.findMany.mockResolvedValue([
 			makeAccount({ type: "DEBIT", balance: D(1000) }),
-			makeAccount({ id: "a2", type: "CREDIT", balance: D(-500) }),
+			makeAccount({ id: "a2", type: "CREDIT", balance: D(500) }),
 		]);
 		const result = await service.findAllByProfile("p1", { withInfo: true });
 		expect(result.info).toBeDefined();
@@ -187,7 +187,7 @@ describe("BanksService.findOne", () => {
 			makeBank({
 				accounts: [
 					makeAccount({ id: "a1", type: "DEBIT", balance: D(1500) }),
-					makeAccount({ id: "a2", type: "CREDIT", balance: D(-500) }),
+					makeAccount({ id: "a2", type: "CREDIT", balance: D(500) }),
 				],
 			}),
 		);
@@ -197,6 +197,7 @@ describe("BanksService.findOne", () => {
 		expect(info.liquidity).toBe(1500);
 		expect(info.debt).toBe(500);
 		expect(info.netWorth).toBe(1500 - 500);
+		// balanceBreakdown: assets = DEBIT 1500; liabilities = CREDIT 500
 		expect(info.balanceBreakdown).toEqual({ assets: 1500, liabilities: 500 });
 	});
 
@@ -205,11 +206,11 @@ describe("BanksService.findOne", () => {
 			makeBank({
 				accounts: [
 					makeAccount({ id: "a1", type: "DEBIT", balance: D(1500) }),
-					makeAccount({ id: "a2", type: "CREDIT", balance: D(-500) }),
+					makeAccount({ id: "a2", type: "CREDIT", balance: D(500) }),
 					makeAccount({
 						id: "a3",
 						type: "LOAN",
-						balance: D(-2000),
+						balance: D(0),
 						loan: makeLoan({ remaining: D(100000) }),
 					}),
 					makeAccount({ id: "a4", type: "CASH", balance: D(300) }),
@@ -221,8 +222,8 @@ describe("BanksService.findOne", () => {
 		expect(info.netWorth).toBe(1500 - 500 - 100000 + 300);
 		expect(info.liquidity).toBe(1500 + 300);
 		expect(info.debt).toBe(500 + 100000);
-		// assets: DEBIT 1500 + CASH 300 = 1800; liabilities: CREDIT 500 + LOAN balance 2000 + loan remaining 100000
-		expect(info.balanceBreakdown).toEqual({ assets: 1800, liabilities: 2500 + 100000 });
+		// assets: DEBIT 1500 + CASH 300 = 1800; liabilities: CREDIT 500 + LOAN remaining 100000
+		expect(info.balanceBreakdown).toEqual({ assets: 1800, liabilities: 500 + 100000 });
 	});
 
 	it("handles empty accounts gracefully with info=true", async () => {

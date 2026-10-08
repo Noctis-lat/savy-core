@@ -220,6 +220,8 @@ export class TransactionsService {
 				dto.destinationAccountId ?? null,
 				dto.amount,
 				1,
+				account.type,
+				destinationAccount?.type ?? null,
 			);
 
 			// PAYMENT waterfall: apply payment to latest unpaid statement on CREDIT dest
@@ -240,7 +242,17 @@ export class TransactionsService {
 		return this.prisma.$transaction(async (tx) => {
 			const existing = await this.findOne(id, profileId);
 
-			// Reverse old balance effect
+			// Reverse old balance effect — need old account types
+			const oldAccount = await this.validateAccountOwnership(tx, existing.accountId, profileId);
+			let oldDestType: string | null = null;
+			if (existing.destinationAccountId) {
+				const oldDest = await this.validateAccountOwnership(
+					tx,
+					existing.destinationAccountId,
+					profileId,
+				);
+				oldDestType = oldDest.type;
+			}
 			await this.applyBalance(
 				tx,
 				existing.type,
@@ -248,6 +260,8 @@ export class TransactionsService {
 				existing.destinationAccountId,
 				Number(existing.amount),
 				-1,
+				oldAccount.type,
+				oldDestType,
 			);
 
 			// Build new values
@@ -261,7 +275,7 @@ export class TransactionsService {
 			const categoryId = dto.categoryId !== undefined ? dto.categoryId : existing.categoryId;
 
 			// Validate new values
-			await this.validateAccountOwnership(tx, accountId, profileId);
+			const newAccount = await this.validateAccountOwnership(tx, accountId, profileId);
 			this.validateTypeRules(type, destinationAccountId);
 
 			let destinationAccount: Account | null = null;
@@ -291,7 +305,16 @@ export class TransactionsService {
 			});
 
 			// Apply new balance effect
-			await this.applyBalance(tx, type, accountId, destinationAccountId, amount, 1);
+			await this.applyBalance(
+				tx,
+				type,
+				accountId,
+				destinationAccountId,
+				amount,
+				1,
+				newAccount.type,
+				destinationAccount?.type ?? null,
+			);
 
 			return updated;
 		});
@@ -301,6 +324,17 @@ export class TransactionsService {
 		return this.prisma.$transaction(async (tx) => {
 			const transaction = await this.findOne(id, profileId);
 
+			// Need account types to reverse balance correctly
+			const account = await this.validateAccountOwnership(tx, transaction.accountId, profileId);
+			let destType: string | null = null;
+			if (transaction.destinationAccountId) {
+				const dest = await this.validateAccountOwnership(
+					tx,
+					transaction.destinationAccountId,
+					profileId,
+				);
+				destType = dest.type;
+			}
 			await this.applyBalance(
 				tx,
 				transaction.type,
@@ -308,6 +342,8 @@ export class TransactionsService {
 				transaction.destinationAccountId,
 				Number(transaction.amount),
 				-1,
+				account.type,
+				destType,
 			);
 
 			await tx.transaction.delete({ where: { id } });
@@ -340,6 +376,18 @@ export class TransactionsService {
 
 	// ── Balance helpers ────────────────────────────────────────────────
 
+	/**
+	 * Applies the balance effect of a transaction to the origin (and optionally
+	 * destination) account.
+	 *
+	 * Sign convention:
+	 * - DEBIT/CASH (assets): positive balance = money you have.
+	 *   EXPENSE decrements, INCOME increments, TRANSFER/PAYMENT origin decrements.
+	 * - CREDIT/LOAN (liabilities): positive balance = debt you owe.
+	 *   EXPENSE increments (more debt), INCOME decrements (refund / paying down),
+	 *   TRANSFER/PAYMENT origin increments (more debt when credit is the source).
+	 *   For PAYMENT/TRANSFER destination: CREDIT decrements (less debt), others increment.
+	 */
 	private async applyBalance(
 		tx: Prisma.TransactionClient,
 		type: TransactionType,
@@ -347,28 +395,40 @@ export class TransactionsService {
 		destinationAccountId: string | null,
 		amount: number,
 		sign: 1 | -1,
+		originType: string,
+		destinationType: string | null,
 	): Promise<void> {
 		const delta = amount * sign;
+		const originIsLiability = LIABILITY_TYPES.includes(originType as AccountType);
 
 		if (type === "INCOME") {
+			// Asset: increment. Liability: decrement (paying down / refund).
+			const op = originIsLiability ? "decrement" : "increment";
 			await tx.account.update({
 				where: { id: accountId },
-				data: { balance: { increment: delta } },
+				data: { balance: { [op]: delta } },
 			});
 		} else if (type === "EXPENSE") {
+			// Asset: decrement. Liability: increment (more debt).
+			const op = originIsLiability ? "increment" : "decrement";
 			await tx.account.update({
 				where: { id: accountId },
-				data: { balance: { decrement: delta } },
+				data: { balance: { [op]: delta } },
 			});
 		} else if (type === "TRANSFER" || type === "PAYMENT") {
+			// Origin: asset decrements, liability increments.
+			const originOp = originIsLiability ? "increment" : "decrement";
 			await tx.account.update({
 				where: { id: accountId },
-				data: { balance: { decrement: delta } },
+				data: { balance: { [originOp]: delta } },
 			});
-			if (destinationAccountId) {
+			if (destinationAccountId && destinationType) {
+				// Destination: liability decrements (less debt), asset increments.
+				const destIsLiability = LIABILITY_TYPES.includes(destinationType as AccountType);
+				const destOp = destIsLiability ? "decrement" : "increment";
 				await tx.account.update({
 					where: { id: destinationAccountId },
-					data: { balance: { increment: delta } },
+					data: { balance: { [destOp]: delta } },
 				});
 			}
 		}

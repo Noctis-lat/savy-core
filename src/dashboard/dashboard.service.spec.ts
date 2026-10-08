@@ -74,8 +74,8 @@ describe("DashboardService", () => {
 			account: [
 				mockAccount({ id: "a-debit", type: "DEBIT", balance: asDecimal(10000) }),
 				mockAccount({ id: "a-cash", type: "CASH", balance: asDecimal(2000) }),
-				mockAccount({ id: "a-credit", type: "CREDIT", balance: asDecimal(-3000) }),
-				mockAccount({ id: "a-loan", type: "LOAN", balance: asDecimal(-5000) }),
+				mockAccount({ id: "a-credit", type: "CREDIT", balance: asDecimal(3000) }),
+				mockAccount({ id: "a-loan", type: "LOAN", balance: asDecimal(5000) }),
 			],
 			transaction: [],
 			savingsGoal: [],
@@ -155,8 +155,8 @@ describe("DashboardService", () => {
 	it("treats only CREDIT/LOAN as liabilities and DEBIT/CASH as assets (only debts case)", async () => {
 		setupFindMany({
 			account: [
-				mockAccount({ id: "c1", type: "CREDIT", balance: asDecimal(-8000) }),
-				mockAccount({ id: "l1", type: "LOAN", balance: asDecimal(-200000) }),
+				mockAccount({ id: "c1", type: "CREDIT", balance: asDecimal(8000) }),
+				mockAccount({ id: "l1", type: "LOAN", balance: asDecimal(200000) }),
 			],
 			transaction: [],
 			savingsGoal: [],
@@ -200,14 +200,14 @@ describe("DashboardService", () => {
 
 	it("computes credit card overview using latest statement when present", async () => {
 		setupFindMany({
-			account: [mockAccount({ id: "cc-acct", type: "CREDIT", balance: asDecimal(-4000) })],
+			account: [mockAccount({ id: "cc-acct", type: "CREDIT", balance: asDecimal(4000) })],
 			transaction: [],
 			savingsGoal: [],
 			creditCard: [
 				{
 					id: "card-1",
 					creditLimit: asDecimal(50000),
-					account: mockAccount({ id: "cc-acct", balance: asDecimal(-4000) }),
+					account: mockAccount({ id: "cc-acct", balance: asDecimal(4000) }),
 					statements: [
 						{
 							balance: asDecimal(12000),
@@ -356,14 +356,14 @@ describe("DashboardService", () => {
 	it("computeCreditOverview uses paymentDueDate (not periodEnd) and exposes noInterestPayment + interestAmount", async () => {
 		const paymentDueDate = new Date("2026-11-04T00:00:00.000Z");
 		setupFindMany({
-			account: [mockAccount({ id: "cc-acct", type: "CREDIT", balance: asDecimal(-4000) })],
+			account: [mockAccount({ id: "cc-acct", type: "CREDIT", balance: asDecimal(4000) })],
 			transaction: [],
 			savingsGoal: [],
 			creditCard: [
 				{
 					id: "card-1",
 					creditLimit: asDecimal(50000),
-					account: mockAccount({ id: "cc-acct", balance: asDecimal(-4000) }),
+					account: mockAccount({ id: "cc-acct", balance: asDecimal(4000) }),
 					statements: [
 						{
 							balance: asDecimal(12000),
@@ -394,14 +394,14 @@ describe("DashboardService", () => {
 
 	it("computeCreditOverview returns null nextPaymentDue when statement is paid", async () => {
 		setupFindMany({
-			account: [mockAccount({ id: "cc-acct", type: "CREDIT", balance: asDecimal(-4000) })],
+			account: [mockAccount({ id: "cc-acct", type: "CREDIT", balance: asDecimal(4000) })],
 			transaction: [],
 			savingsGoal: [],
 			creditCard: [
 				{
 					id: "card-1",
 					creditLimit: asDecimal(50000),
-					account: mockAccount({ id: "cc-acct", balance: asDecimal(-4000) }),
+					account: mockAccount({ id: "cc-acct", balance: asDecimal(4000) }),
 					statements: [
 						{
 							balance: asDecimal(12000),
@@ -508,5 +508,50 @@ describe("DashboardService", () => {
 		expect(favor.availableCredit).toBe(11000);
 		expect(over.paymentDueDate).toBeNull();
 		expect(over.noInterestPayment).toBeNull();
+	});
+
+	// ─── Sign convention: CREDIT balance = positive debt ───────────────
+
+	it("computes netWorth correctly with positive CREDIT debt (convention: balance > 0 = debt)", async () => {
+		setupFindMany({
+			account: [
+				mockAccount({ id: "a-debit", type: "DEBIT", balance: asDecimal(10000) }),
+				mockAccount({ id: "a-credit", type: "CREDIT", balance: asDecimal(3000) }),
+				mockAccount({ id: "a-loan", type: "LOAN", balance: asDecimal(5000) }),
+			],
+			transaction: [],
+			savingsGoal: [],
+			creditCard: [],
+			loan: [],
+			bank: [],
+		});
+		budgetsService.getProgressForAll.mockResolvedValue([]);
+
+		const summary = await service.getSummary(profile);
+
+		// assets = DEBIT 10000; liabilities = CREDIT 3000 + LOAN 5000 = 8000
+		expect(summary.netWorth.assets).toBe(10000);
+		expect(summary.netWorth.liabilities).toBe(8000);
+		expect(summary.netWorth.total).toBe(2000);
+	});
+
+	it("accountsDistribution uses absolute balances with positive CREDIT debt", async () => {
+		setupFindMany({
+			account: [
+				mockAccount({ id: "a-debit", type: "DEBIT", balance: asDecimal(10000) }),
+				mockAccount({ id: "a-credit", type: "CREDIT", balance: asDecimal(4000) }),
+			],
+			transaction: [],
+			savingsGoal: [],
+			creditCard: [],
+			loan: [],
+			bank: [],
+		});
+		budgetsService.getProgressForAll.mockResolvedValue([]);
+
+		const summary = await service.getSummary(profile);
+
+		const credit = summary.accountsDistribution.find((d) => d.type === "CREDIT");
+		expect(credit?.totalBalance).toBe(4000);
 	});
 });
