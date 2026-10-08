@@ -140,13 +140,20 @@ model Transaction {
   createdAt           DateTime        @default(now()) @map("created_at")
   updatedAt           DateTime        @updatedAt @map("updated_at")
 
+  // Credit card reactive behavior: link to generated statement + commission typing
+  statementId         String?         @map("statement_id")
+  commissionType      CommissionType? @map("commission_type")
+
   account            Account   @relation("AccountTransactions", fields: [accountId], references: [id], onDelete: Cascade)
   destinationAccount Account?  @relation("DestinationTransactions", fields: [destinationAccountId], references: [id], onDelete: SetNull)
   category           Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  statement          CardStatement?    @relation(fields: [statementId], references: [id], onDelete: SetNull)
+  installmentPlan    InstallmentPlan?
 
   @@index([accountId, date])
   @@index([destinationAccountId])
   @@index([categoryId])
+  @@index([statementId])
   @@map("transactions")
 }
 
@@ -225,11 +232,17 @@ model CreditCard {
   accountId        String   @unique @map("account_id")
   creditLimit      Decimal  @map("credit_limit") @db.Decimal(12, 2)
   cutDay           Int      @map("cut_day") // 1-31
-  paymentDay       Int      @map("payment_day") // 1-31
   interestRate     Decimal  @map("interest_rate") @db.Decimal(5, 4) // annual rate as decimal (e.g. 0.3600 = 36%)
   noInterestMonths Int      @default(0) @map("no_interest_months")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
+
+  // Credit card reactive behavior: payment due days (offset from cut day) replaces fixed paymentDay
+  paymentDueDays     Int?    @default(20) @map("payment_due_days")
+  // Tolerance for over-limit spending (default 0 = strict limit)
+  overLimitTolerance Decimal  @default(0) @map("over_limit_tolerance") @db.Decimal(12, 2)
+  // Deprecated: replaced by paymentDueDays. Kept nullable for backward compatibility during transition.
+  paymentDay         Int?    @map("payment_day") // 1-31
 
   account    Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
   statements CardStatement[]
@@ -250,10 +263,40 @@ model CardStatement {
   isPaid            Boolean  @default(false) @map("is_paid")
   createdAt         DateTime @default(now()) @map("created_at")
 
-  creditCard CreditCard @relation(fields: [creditCardId], references: [id], onDelete: Cascade)
+  // Credit card reactive behavior: payment tracking + generation metadata
+  paymentDueDate   DateTime? @map("payment_due_date")
+  paidAmount       Decimal   @default(0) @map("paid_amount") @db.Decimal(12, 2)
+  remainingBalance Decimal?  @map("remaining_balance") @db.Decimal(12, 2)
+  isGenerated      Boolean   @default(false) @map("is_generated")
+  updatedAt        DateTime? @updatedAt @map("updated_at")
 
+  creditCard   CreditCard   @relation(fields: [creditCardId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@unique([creditCardId, periodStart])
   @@index([creditCardId, periodEnd])
   @@map("card_statements")
+}
+
+// ─── Installment Plan ─────────────────────────────────────────────────
+// Per-transaction installment tracking for MSI (sin intereses) and MSCI (con intereses)
+model InstallmentPlan {
+  id            String                @id @default(uuid())
+  transactionId String                @unique @map("transaction_id")
+  type          InstallmentPlanType
+  totalMonths   Int                   @map("total_months")
+  currentMonth  Int                   @default(0) @map("current_month")
+  monthlyAmount Decimal               @map("monthly_amount") @db.Decimal(12, 2)
+  // null for MSI, non-null for MSCI (per-plan interest rate)
+  interestRate  Decimal?              @map("interest_rate") @db.Decimal(5, 4)
+  status        InstallmentPlanStatus @default(ACTIVE)
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId])
+  @@map("installment_plans")
 }
 
 // ─── Loan ────────────────────────────────────────────────────────────
@@ -272,6 +315,27 @@ model Loan {
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@map("loans")
+}
+
+// ─── Credit Card Reactive Behavior Enums ───────────────────────────────
+// Commission types for typed EXPENSE transactions (commissions as transactions)
+enum CommissionType {
+  ANNUAL_FEE
+  LATE_PAYMENT
+  CASH_ADVANCE
+}
+
+// Installment plan types: MSI (sin intereses), MSCI (con intereses)
+enum InstallmentPlanType {
+  MSI
+  MSCI
+}
+
+// Installment plan lifecycle states
+enum InstallmentPlanStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
 }
 
 // ─── Recurring Expense ───────────────────────────────────────────────
