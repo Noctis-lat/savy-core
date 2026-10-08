@@ -306,3 +306,71 @@ describe("QueryIncomeVsExpensesDto validation", () => {
 		expect(errors).toHaveLength(0);
 	});
 });
+
+// ─── findCreditCardsByBank ─────────────────────────────────────────────
+
+describe("BanksService.findCreditCardsByBank", () => {
+	let service: BanksService;
+	let prisma: { bank: { findFirst: jest.Mock }; account: { findMany: jest.Mock } };
+
+	const makeCreditAccount = (
+		id: string,
+		balance: number,
+		creditLimit: number,
+		paymentDueDays: number | null,
+	) => ({
+		id,
+		name: `Card ${id}`,
+		balance: D(balance),
+		creditCard: {
+			id: `cc-${id}`,
+			accountId: id,
+			creditLimit: D(creditLimit),
+			cutDay: 15,
+			paymentDay: null,
+			paymentDueDays,
+			interestRate: D(0.36),
+			noInterestMonths: 0,
+		},
+	});
+
+	beforeEach(async () => {
+		prisma = {
+			bank: { findFirst: jest.fn().mockResolvedValue(makeBank()) },
+			account: { findMany: jest.fn() },
+		};
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [BanksService, { provide: PrismaService, useValue: prisma }],
+		}).compile();
+		service = module.get(BanksService);
+	});
+
+	it("includes availableCredit (creditLimit - balance) and paymentDueDays for each card", async () => {
+		prisma.account.findMany.mockResolvedValue([
+			makeCreditAccount("a1", 2000, 10000, 20),
+			makeCreditAccount("a2", 5000, 5000, 15),
+		]);
+
+		const cards = await service.findCreditCardsByBank("bank-1", "p1");
+
+		expect(cards).toHaveLength(2);
+		expect(cards[0].availableCredit).toBe("8000.00");
+		expect(cards[0].paymentDueDays).toBe(20);
+		expect(cards[1].availableCredit).toBe("0.00");
+		expect(cards[1].paymentDueDays).toBe(15);
+	});
+
+	it("handles over-limit, saldo a favor and decimal rounding", async () => {
+		prisma.account.findMany.mockResolvedValue([
+			makeCreditAccount("over", 12000, 10000, 20),
+			makeCreditAccount("favor", -1000, 10000, 20),
+			makeCreditAccount("dec", 3333.33, 10000, null),
+		]);
+
+		const cards = await service.findCreditCardsByBank("bank-1", "p1");
+
+		expect(cards.map((c) => c.availableCredit)).toEqual(["-2000.00", "11000.00", "6666.67"]);
+		// Null paymentDueDays falls back to the default offset of 20 days
+		expect(cards[2].paymentDueDays).toBe(20);
+	});
+});

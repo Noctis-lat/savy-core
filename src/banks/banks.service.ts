@@ -1,10 +1,13 @@
 import { Injectable, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
 import type { Period } from "../common/utils/period.util";
 import { computePeriodRange, PERIODS } from "../common/utils/period.util";
-import type { Prisma } from "../generated/prisma/client";
+import { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import type { BankDetailKpis, BankKpis } from "./dto/bank.dto";
 import { CreateBankDto, UpdateBankDto } from "./dto/bank.dto";
+
+/** Default offset (natural days) between cut date and payment due date. */
+const DEFAULT_PAYMENT_DUE_DAYS = 20;
 
 interface AccountWithLoan {
 	balance: { toString(): string };
@@ -179,14 +182,26 @@ export class BanksService {
 			include: { creditCard: true },
 			orderBy: { createdAt: "desc" },
 		});
-		return accounts
-			.filter((a) => a.creditCard)
-			.map((a) => ({
-				...a.creditCard!,
-				accountName: a.name,
-				accountId: a.id,
-				balance: a.balance,
-			}));
+		return accounts.flatMap((a) => {
+			const card = a.creditCard;
+			if (!card) {
+				return [];
+			}
+			// availableCredit = creditLimit - account.balance (Decimal, 2dp) — not gated by the feature flag
+			const availableCredit = new Prisma.Decimal(card.creditLimit.toString())
+				.sub(new Prisma.Decimal(a.balance.toString()))
+				.toDecimalPlaces(2);
+			return [
+				{
+					...card,
+					accountName: a.name,
+					accountId: a.id,
+					balance: a.balance,
+					availableCredit: availableCredit.toFixed(2),
+					paymentDueDays: card.paymentDueDays ?? DEFAULT_PAYMENT_DUE_DAYS,
+				},
+			];
+		});
 	}
 
 	async findLoansByBank(bankId: string, profileId: string) {

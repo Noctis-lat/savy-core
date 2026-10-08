@@ -19,8 +19,25 @@ export class BankCreditCardResponseDto {
 	@ApiProperty({ example: 15, description: "Statement cut day (1-31)" })
 	cutDay!: number;
 
-	@ApiProperty({ example: 25, description: "Payment due day (1-31)" })
-	paymentDay!: number;
+	@ApiPropertyOptional({
+		example: 25,
+		description: "Deprecated: fixed payment due day (1-31). Use paymentDueDays.",
+		deprecated: true,
+		nullable: true,
+	})
+	paymentDay?: number | null;
+
+	@ApiProperty({
+		example: 20,
+		description: "Natural days between the cut date and the payment due date (default 20)",
+	})
+	paymentDueDays!: number;
+
+	@ApiProperty({
+		example: "5000.00",
+		description: "Available credit: creditLimit - account balance (negative when over limit)",
+	})
+	availableCredit!: string;
 
 	@ApiProperty({ example: "0.3600", description: "Annual interest rate (Decimal)" })
 	interestRate!: unknown;
