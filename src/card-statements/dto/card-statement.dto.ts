@@ -37,13 +37,26 @@ export class CreateCardStatementDto {
 	@IsDateString()
 	periodEnd!: string;
 
-	@ApiProperty({ example: 15000, description: "Statement balance" })
+	/**
+	 * @deprecated When CREDIT_CARD_REACTIVE_ENABLED=true, these calculated fields
+	 * are rejected. Statements are auto-generated on read. Only accepted when the
+	 * feature flag is off (legacy CRUD mode).
+	 */
+	@ApiProperty({
+		example: 15000,
+		description: "Statement balance (deprecated when reactive behavior enabled)",
+		deprecated: true,
+	})
 	@Type(() => Number)
 	@IsNumber()
 	@Min(0)
 	balance!: number;
 
-	@ApiProperty({ example: 750, description: "Minimum payment" })
+	@ApiProperty({
+		example: 750,
+		description: "Minimum payment (deprecated when reactive behavior enabled)",
+		deprecated: true,
+	})
 	@Type(() => Number)
 	@IsNumber()
 	@Min(0)
@@ -51,14 +64,20 @@ export class CreateCardStatementDto {
 
 	@ApiProperty({
 		example: 15000,
-		description: "No-interest payment (full balance to avoid interest)",
+		description: "No-interest payment (deprecated when reactive behavior enabled)",
+		deprecated: true,
 	})
 	@Type(() => Number)
 	@IsNumber()
 	@Min(0)
 	noInterestPayment!: number;
 
-	@ApiPropertyOptional({ example: 2250, description: "Interest amount", required: false })
+	@ApiPropertyOptional({
+		example: 2250,
+		description: "Interest amount (deprecated when reactive behavior enabled)",
+		required: false,
+		deprecated: true,
+	})
 	@IsOptional()
 	@Type(() => Number)
 	@IsNumber()
@@ -67,35 +86,14 @@ export class CreateCardStatementDto {
 }
 
 export class UpdateCardStatementDto {
-	@ApiPropertyOptional({ example: 15000, description: "Statement balance" })
+	@ApiPropertyOptional({ example: 15000, description: "Amount paid towards this statement" })
 	@IsOptional()
 	@Type(() => Number)
 	@IsNumber()
 	@Min(0)
-	balance?: number;
+	paidAmount?: number;
 
-	@ApiPropertyOptional({ example: 750, description: "Minimum payment" })
-	@IsOptional()
-	@Type(() => Number)
-	@IsNumber()
-	@Min(0)
-	minPayment?: number;
-
-	@ApiPropertyOptional({ example: 15000, description: "No-interest payment" })
-	@IsOptional()
-	@Type(() => Number)
-	@IsNumber()
-	@Min(0)
-	noInterestPayment?: number;
-
-	@ApiPropertyOptional({ example: 2250, description: "Interest amount" })
-	@IsOptional()
-	@Type(() => Number)
-	@IsNumber()
-	@Min(0)
-	interestAmount?: number;
-
-	@ApiPropertyOptional({ example: true, description: "Whether the statement is paid" })
+	@ApiPropertyOptional({ example: true, description: "Whether the statement is fully paid" })
 	@IsOptional()
 	@IsBoolean()
 	isPaid?: boolean;
@@ -128,6 +126,42 @@ export class CardStatementResponseDto {
 
 	@ApiProperty({ example: false, description: "Whether the statement is paid" })
 	isPaid!: boolean;
+
+	@ApiPropertyOptional({
+		example: "2026-11-04T00:00:00.000Z",
+		description: "Payment due date (calculated)",
+	})
+	@IsOptional()
+	@IsDateString()
+	paymentDueDate?: Date;
+
+	@ApiPropertyOptional({
+		example: 2000,
+		description: "Amount paid towards this statement",
+		required: false,
+	})
+	paidAmount?: number;
+
+	@ApiPropertyOptional({
+		example: 3000,
+		description: "Remaining balance after partial payment",
+		required: false,
+	})
+	remainingBalance?: number;
+
+	@ApiPropertyOptional({
+		example: true,
+		description: "Whether this statement was auto-generated",
+		required: false,
+	})
+	isGenerated?: boolean;
+
+	@ApiPropertyOptional({
+		example: "2026-10-15T12:00:00.000Z",
+		description: "Last update timestamp",
+		required: false,
+	})
+	updatedAt?: Date;
 
 	@ApiProperty({ example: "2026-07-28T20:00:00.000Z", description: "Creation date" })
 	createdAt!: Date;
