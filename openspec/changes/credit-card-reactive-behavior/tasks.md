@@ -67,121 +67,121 @@ Chain strategy: feature-branch-chain
 
 ## Phase 2: Calculation Engine (Core Pure Logic)
 
-- [ ] T-007 RED: Write failing unit tests for `mexican-holidays.ts` — `getMexicanHolidays(year)` function. Test fixed holidays for 2026 (Jan 1, May 1, Dec 25). Test movable holidays: Constitución first Monday of Feb 2026 (Feb 2), Benito Juárez third Monday of Mar 2026 (Mar 16), Independencia third Monday of Sep 2026 (Sep 21), Revolución third Monday of Nov 2026 (Nov 16). Triangulate with 2027 dates.
+- [x] T-007 RED: Write failing unit tests for `mexican-holidays.ts` — `getMexicanHolidays(year)` function. Test fixed holidays for 2026 (Jan 1, May 1, Dec 25). Test movable holidays: Constitución first Monday of Feb 2026 (Feb 2), Benito Juárez third Monday of Mar 2026 (Mar 16), Independencia third Monday of Sep 2026 (Sep 21), Revolución third Monday of Nov 2026 (Nov 16). Triangulate with 2027 dates.
   - **Files**: `src/credit-cards/calculations/mexican-holidays.spec.ts` (create), `src/credit-cards/calculations/mexican-holidays.ts` (create — empty stub so import resolves but returns wrong values)
   - **Dependencies**: T-006 (generated client available for build)
   - **Verification**: `bun run test src/credit-cards/calculations/mexican-holidays.spec.ts` — tests FAIL (RED)
   - **TDD**: RED step — tests written first, reference `getMexicanHolidays` which returns empty array (stub)
 
-- [ ] T-008 GREEN + TRIANGULATE: Implement `mexican-holidays.ts` — `getMexicanHolidays(year: number): Date[]` returning all 7 Mexican national holidays with movable-holiday computation (`getFirstMondayOfMonth`, `getThirdMondayOfMonth` helper functions). Run tests → pass. Add 2027 triangulation cases → pass.
+- [x] T-008 GREEN + TRIANGULATE: Implement `mexican-holidays.ts` — `getMexicanHolidays(year: number): Date[]` returning all 7 Mexican national holidays with movable-holiday computation (`getFirstMondayOfMonth`, `getThirdMondayOfMonth` helper functions). Run tests → pass. Add 2027 triangulation cases → pass.
   - **Files**: `src/credit-cards/calculations/mexican-holidays.ts`
   - **Dependencies**: T-007
   - **Verification**: `bun run test src/credit-cards/calculations/mexican-holidays.spec.ts` — ALL pass (GREEN)
   - **TDD**: GREEN + TRIANGULATE — real logic replacing stub
 
-- [ ] T-009 RED: Write failing unit tests for `business-days.util.ts` — `isWeekend(date)`, `isHoliday(date, holidays)`, `getNextBusinessDay(date, holidays)`. Test scenarios: Saturday → true, Wednesday → false; date in holiday list → true; Wednesday not in list → false. `getNextBusinessDay`: Saturday Nov 7 2026 → Monday Nov 9; Sunday Nov 8 → Monday Nov 9; Sep 16 2026 (holiday) → Sep 17; holiday+weekend (Sep 16 2026 is Wednesday — use a Friday holiday scenario); Wednesday Nov 4 → Nov 4 (no adjustment). Triangulate with year boundary dates.
+- [x] T-009 RED: Write failing unit tests for `business-days.util.ts` — `isWeekend(date)`, `isHoliday(date, holidays)`, `getNextBusinessDay(date, holidays)`. Test scenarios: Saturday → true, Wednesday → false; date in holiday list → true; Wednesday not in list → false. `getNextBusinessDay`: Saturday Nov 7 2026 → Monday Nov 9; Sunday Nov 8 → Monday Nov 9; Sep 16 2026 (holiday) → Sep 17; holiday+weekend (Sep 16 2026 is Wednesday — use a Friday holiday scenario); Wednesday Nov 4 → Nov 4 (no adjustment). Triangulate with year boundary dates.
   - **Files**: `src/credit-cards/calculations/business-days.util.spec.ts` (create), `src/credit-cards/calculations/business-days.util.ts` (create — stub)
   - **Dependencies**: T-008 (mexican-holidays available for test setup)
   - **Verification**: `bun run test src/credit-cards/calculations/business-days.util.spec.ts` — FAIL (RED)
   - **TDD**: RED step
 
-- [ ] T-010 GREEN + TRIANGULATE: Implement `business-days.util.ts` with `isWeekend`, `isHoliday`, `getNextBusinessDay`. Use Date arithmetic (no external libs). Run tests → pass.
+- [x] T-010 GREEN + TRIANGULATE: Implement `business-days.util.ts` with `isWeekend`, `isHoliday`, `getNextBusinessDay`. Use Date arithmetic (no external libs). Run tests → pass.
   - **Files**: `src/credit-cards/calculations/business-days.util.ts`
   - **Dependencies**: T-009
   - **Verification**: `bun run test src/credit-cards/calculations/business-days.util.spec.ts` — ALL pass
   - **TDD**: GREEN + TRIANGULATE
 
-- [ ] T-011 RED: Write failing unit tests for `CreditCalculationService.calculateAverageDailyBalance`. Test spec scenarios: single purchase mid-period (0×14 + 3000×15)/30 = 1500.00; multiple purchases (0×4 + 1000×15 + 3000×11)/30 = 1600.00; payment reduces balance (5000×9 + 3000×21)/30 = 3600.00; saldo a favor treated as 0 for interest (0×14 + 1000×15)/30 = 500.00; full period saldo a favor → 0.00. Use `Prisma.Decimal` for all values. Import service directly (no NestJS module).
+- [x] T-011 RED: Write failing unit tests for `CreditCalculationService.calculateAverageDailyBalance`. Test spec scenarios: single purchase mid-period (0×14 + 3000×15)/30 = 1500.00; multiple purchases (0×4 + 1000×15 + 3000×11)/30 = 1600.00; payment reduces balance (5000×9 + 3000×21)/30 = 3600.00; saldo a favor treated as 0 for interest (0×14 + 1000×15)/30 = 500.00; full period saldo a favor → 0.00. Use `Prisma.Decimal` for all values. Import service directly (no NestJS module).
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.spec.ts` (create), `src/credit-cards/calculations/credit-calculation.service.ts` (create — stub with empty method returning `new Decimal(0)`)
   - **Dependencies**: T-006
   - **Verification**: `bun run test src/credit-cards/calculations/credit-calculation.service.spec.ts` — FAIL (RED)
   - **TDD**: RED step — 5 spec scenarios as test cases
 
-- [ ] T-012 GREEN + TRIANGULATE: Implement `calculateAverageDailyBalance` in `CreditCalculationService`. Sort transactions by date, walk day-by-day from periodStart to periodEnd, track running balance, clamp negative balances to 0 for interest calc. Sum daily balances, divide by periodDays. Return `Decimal`. Run tests → pass.
+- [x] T-012 GREEN + TRIANGULATE: Implement `calculateAverageDailyBalance` in `CreditCalculationService`. Sort transactions by date, walk day-by-day from periodStart to periodEnd, track running balance, clamp negative balances to 0 for interest calc. Sum daily balances, divide by periodDays. Return `Decimal`. Run tests → pass.
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.ts`
   - **Dependencies**: T-011
   - **Verification**: `bun run test src/credit-cards/calculations/credit-calculation.service.spec.ts` — ALL pass
   - **TDD**: GREEN + TRIANGULATE — 5 scenarios force real logic
 
-- [ ] T-013 RED: Write failing unit tests for `CreditCalculationService.calculateInterest` (with IVA). Test: standard (1500 × 0.001 × 30 = 45.00 pre-IVA, 52.20 total); zero balance → 0.00; IVA on zero → 0.00. Verify `InterestResult` shape: `{ preIva, iva, total }` where `total = preIva × 1.16`.
+- [x] T-013 RED: Write failing unit tests for `CreditCalculationService.calculateInterest` (with IVA). Test: standard (1500 × 0.001 × 30 = 45.00 pre-IVA, 52.20 total); zero balance → 0.00; IVA on zero → 0.00. Verify `InterestResult` shape: `{ preIva, iva, total }` where `total = preIva × 1.16`.
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.spec.ts` (append tests)
   - **Dependencies**: T-012
   - **Verification**: `bun run test src/credit-cards/calculations/credit-calculation.service.spec.ts` — new tests FAIL
   - **TDD**: RED step
 
-- [ ] T-014 GREEN: Implement `calculateInterest(input: InterestInput): InterestResult`. Formula: `preIva = avgDailyBalance × (annualRate / 360) × periodDays`, `iva = preIva × 0.16`, `total = preIva + iva`. Run tests → pass.
+- [x] T-014 GREEN: Implement `calculateInterest(input: InterestInput): InterestResult`. Formula: `preIva = avgDailyBalance × (annualRate / 360) × periodDays`, `iva = preIva × 0.16`, `total = preIva + iva`. Run tests → pass.
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.ts`
   - **Dependencies**: T-013
   - **Verification**: `bun run test src/credit-cards/calculations/credit-calculation.service.spec.ts` — ALL pass
   - **TDD**: GREEN
 
-- [ ] T-015 RED: Write failing unit tests for `CreditCalculationService.calculatePngi`. Test: no plans → pngi = saldoDeudor (5000.00); MSI exclusion (8000 - 6000 + 500 = 2500.00); multiple plans (10000 - 3000 - 4000 + 500 + 700 = 4200.00). Test with COMPLETED/CANCELLED plans excluded.
+- [x] T-015 RED: Write failing unit tests for `CreditCalculationService.calculatePngi`. Test: no plans → pngi = saldoDeudor (5000.00); MSI exclusion (8000 - 6000 + 500 = 2500.00); multiple plans (10000 - 3000 - 4000 + 500 + 700 = 4200.00). Test with COMPLETED/CANCELLED plans excluded.
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.spec.ts` (append)
   - **Dependencies**: T-014
   - **Verification**: `bun run test src/credit-cards/calculations/credit-calculation.service.spec.ts` — new tests FAIL
   - **TDD**: RED step
 
-- [ ] T-016 GREEN: Implement `calculatePngi(input: PngiInput): Decimal`. Filter plans to ACTIVE only. `pngi = totalSaldoDeudor - sum(activePlan.remainingBalance) + sum(activePlan.currentMensualidad)`. Run tests → pass.
+- [x] T-016 GREEN: Implement `calculatePngi(input: PngiInput): Decimal`. Filter plans to ACTIVE only. `pngi = totalSaldoDeudor - sum(activePlan.remainingBalance) + sum(activePlan.currentMensualidad)`. Run tests → pass.
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.ts`
   - **Dependencies**: T-015
   - **Verification**: `bun run test src/credit-cards/calculations/credit-calculation.service.spec.ts` — ALL pass
   - **TDD**: GREEN
 
-- [ ] T-017 RED: Write failing unit tests for `CreditCalculationService.calculateMinimumPayment`. Test: formula (a) wins (127.20 > 125.00); formula (b) wins (15.00 < 250.00 → 250.00); balance cap (625.00 capped to 500.00); zero balance → 0.00; zero balance with high credit limit → 0.00; no intermediate rounding (3333.33 × 1.5% + 0 = 49.9999... → rounded to 50.00). revolvingBalance excludes plan balances + includes mensualidades.
+- [x] T-017 RED: Write failing unit tests for `CreditCalculationService.calculateMinimumPayment`. Test: formula (a) wins (127.20 > 125.00); formula (b) wins (15.00 < 250.00 → 250.00); balance cap (625.00 capped to 500.00); zero balance → 0.00; zero balance with high credit limit → 0.00; no intermediate rounding (3333.33 × 1.5% + 0 = 49.9999... → rounded to 50.00). revolvingBalance excludes plan balances + includes mensualidades.
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.spec.ts` (append)
   - **Dependencies**: T-016
   - **Verification**: `bun run test src/credit-cards/calculations/credit-calculation.service.spec.ts` — new tests FAIL
   - **TDD**: RED step
 
-- [ ] T-018 GREEN: Implement `calculateMinimumPayment(input: MinimumPaymentInput): Decimal`. Formula: `formulaA = revolvingBalance.mul(0.015).add(periodInterest)`, `formulaB = creditLimit.mul(0.0125)`, `result = max(formulaA, formulaB)`, `capped = min(result, statementBalance)`. Zero balance → return `Decimal(0)`. Round final to 2 decimal places. Run tests → pass.
+- [x] T-018 GREEN: Implement `calculateMinimumPayment(input: MinimumPaymentInput): Decimal`. Formula: `formulaA = revolvingBalance.mul(0.015).add(periodInterest)`, `formulaB = creditLimit.mul(0.0125)`, `result = max(formulaA, formulaB)`, `capped = min(result, statementBalance)`. Zero balance → return `Decimal(0)`. Round final to 2 decimal places. Run tests → pass.
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.ts`
   - **Dependencies**: T-017
   - **Verification**: `bun run test src/credit-cards/calculations/credit-calculation.service.spec.ts` — ALL pass
   - **TDD**: GREEN
 
-- [ ] T-019 RED: Write failing unit tests for `CreditCalculationService.calculatePaymentDueDate`. Test: standard 20-day offset (Oct 15 + 20 = Nov 4); custom 15-day offset (Nov 1 + 15 = Nov 16); Saturday Nov 7 2026 → Monday Nov 9; Sunday Nov 8 → Monday Nov 9; holiday Sep 16 2026 → Sep 17; holiday+weekend (Friday Sep 16 2026 → Monday Sep 19 — note: Sep 16 2026 is a Wednesday, adjust test to use a Friday holiday or construct a scenario where holiday + weekend chain); already business day → no change. Use `getMexicanHolidays(year)` to build holiday list.
+- [x] T-019 RED: Write failing unit tests for `CreditCalculationService.calculatePaymentDueDate`. Test: standard 20-day offset (Oct 15 + 20 = Nov 4); custom 15-day offset (Nov 1 + 15 = Nov 16); Saturday Nov 7 2026 → Monday Nov 9; Sunday Nov 8 → Monday Nov 9; holiday Sep 16 2026 → Sep 17; holiday+weekend (Friday Sep 16 2026 → Monday Sep 19 — note: Sep 16 2026 is a Wednesday, adjust test to use a Friday holiday or construct a scenario where holiday + weekend chain); already business day → no change. Use `getMexicanHolidays(year)` to build holiday list.
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.spec.ts` (append)
   - **Dependencies**: T-010 (business-days.util available), T-008 (mexican-holidays available)
   - **Verification**: `bun run test src/credit-cards/calculations/credit-calculation.service.spec.ts` — new tests FAIL
   - **TDD**: RED step
 
-- [ ] T-020 GREEN: Implement `calculatePaymentDueDate(cutDate: Date, paymentDueDays: number): Date`. Add `paymentDueDays` to `cutDate`, call `getNextBusinessDay` with `getMexicanHolidays(year)` for the resulting date's year. Handle year boundary (holidays from both years if date crosses Dec→Jan). Run tests → pass.
+- [x] T-020 GREEN: Implement `calculatePaymentDueDate(cutDate: Date, paymentDueDays: number): Date`. Add `paymentDueDays` to `cutDate`, call `getNextBusinessDay` with `getMexicanHolidays(year)` for the resulting date's year. Handle year boundary (holidays from both years if date crosses Dec→Jan). Run tests → pass.
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.ts`
   - **Dependencies**: T-019
   - **Verification**: `bun run test src/credit-cards/calculations/credit-calculation.service.spec.ts` — ALL pass
   - **TDD**: GREEN
 
-- [ ] T-021 RED: Write failing unit tests for `CreditCalculationService.applyPaymentWaterfall`. Test: partial interest (600 payment, 500 interest, 200 commissions → 500 to interest, 100 to commissions, remainder 100 in commissions); full coverage with remainder (2500 payment, 300 interest + 100 commissions + 2000 ordinary → all covered, remainder 0); empty categories (payment with 0 interest, 0 commissions → all to ordinary); payment exceeds all → remainder > 0. Verify order: interest → commissions → ordinary → MSI → MSCI.
+- [x] T-021 RED: Write failing unit tests for `CreditCalculationService.applyPaymentWaterfall`. Test: partial interest (600 payment, 500 interest, 200 commissions → 500 to interest, 100 to commissions, remainder 100 in commissions); full coverage with remainder (2500 payment, 300 interest + 100 commissions + 2000 ordinary → all covered, remainder 0); empty categories (payment with 0 interest, 0 commissions → all to ordinary); payment exceeds all → remainder > 0. Verify order: interest → commissions → ordinary → MSI → MSCI.
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.spec.ts` (append)
   - **Dependencies**: T-018
   - **Verification**: `bun run test src/credit-cards/calculations/credit-calculation.service.spec.ts` — new tests FAIL
   - **TDD**: RED step
 
-- [ ] T-022 GREEN: Implement `applyPaymentWaterfall(input: WaterfallInput): WaterfallResult`. Apply payment sequentially: interest, commissions, ordinary, MSI, MSCI. Track applied amounts and remainder. Include `// ASSUMPTION — TODO: Verify against primary Banxico/CONDUSEF source.` comment. Run tests → pass.
+- [x] T-022 GREEN: Implement `applyPaymentWaterfall(input: WaterfallInput): WaterfallResult`. Apply payment sequentially: interest, commissions, ordinary, MSI, MSCI. Track applied amounts and remainder. Include `// ASSUMPTION — TODO: Verify against primary Banxico/CONDUSEF source.` comment. Run tests → pass.
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.ts`
   - **Dependencies**: T-021
   - **Verification**: `bun run test src/credit-cards/calculations/credit-calculation.service.spec.ts` — ALL pass
   - **TDD**: GREEN
 
-- [ ] T-023 RED: Write failing unit tests for `CreditCalculationService.calculateMsciMonthlyAmount`. Test: principal 6000, rate 0.12, 12 months → monthlyInterest = 60.00, monthlyAmount = 560.00. Triangulate: principal 10000, rate 0.24, 24 months → monthlyInterest = 100.00, monthlyAmount = 516.67.
+- [x] T-023 RED: Write failing unit tests for `CreditCalculationService.calculateMsciMonthlyAmount`. Test: principal 6000, rate 0.12, 12 months → monthlyInterest = 60.00, monthlyAmount = 560.00. Triangulate: principal 10000, rate 0.24, 24 months → monthlyInterest = 100.00, monthlyAmount = 516.67.
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.spec.ts` (append)
   - **Dependencies**: T-022
   - **Verification**: `bun run test src/credit-cards/calculations/credit-calculation.service.spec.ts` — new tests FAIL
   - **TDD**: RED step
 
-- [ ] T-024 GREEN: Implement `calculateMsciMonthlyAmount(principal: Decimal, rate: Decimal, totalMonths: number): Decimal`. `monthlyPrincipal = principal / totalMonths`, `monthlyInterest = principal × rate / totalMonths`, return `monthlyPrincipal + monthlyInterest`. Include `// ASSUMPTION — TODO` comment. Run tests → pass.
+- [x] T-024 GREEN: Implement `calculateMsciMonthlyAmount(principal: Decimal, rate: Decimal, totalMonths: number): Decimal`. `monthlyPrincipal = principal / totalMonths`, `monthlyInterest = principal × rate / totalMonths`, return `monthlyPrincipal + monthlyInterest`. Include `// ASSUMPTION — TODO` comment. Run tests → pass.
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.ts`
   - **Dependencies**: T-023
   - **Verification**: `bun run test src/credit-cards/calculations/credit-calculation.service.spec.ts` — ALL pass
   - **TDD**: GREEN
 
-- [ ] T-025 REFACTOR: Review `CreditCalculationService` for extracted constants (IVA rate 0.16, Banxico percentages 0.015, 0.0125, day-count 360). Extract magic numbers to named constants. Extract `DailyBalancePoint` and input interfaces to the service file. Run ALL calculation tests → must still pass after each refactoring step.
+- [x] T-025 REFACTOR: Review `CreditCalculationService` for extracted constants (IVA rate 0.16, Banxico percentages 0.015, 0.0125, day-count 360). Extract magic numbers to named constants. Extract `DailyBalancePoint` and input interfaces to the service file. Run ALL calculation tests → must still pass after each refactoring step.
   - **Files**: `src/credit-cards/calculations/credit-calculation.service.ts`
   - **Dependencies**: T-024
   - **Verification**: `bun run test src/credit-cards/calculations/` — ALL pass after refactor
   - **TDD**: REFACTOR step
 
-- [ ] T-026 Register `CreditCalculationService` in `CreditCardsModule` providers and exports. Verify `bun run build` compiles.
+- [x] T-026 Register `CreditCalculationService` in `CreditCardsModule` providers and exports. Verify `bun run build` compiles.
   - **Files**: `src/credit-cards/credit-cards.module.ts`
   - **Dependencies**: T-025
   - **Verification**: `bun run build` — no TypeScript errors
