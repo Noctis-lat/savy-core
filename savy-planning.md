@@ -67,7 +67,7 @@ Credit card details, 1:1 extension of an Account of type `CREDIT`. Stores credit
 Statement generated for a billing period of a CreditCard. Contains period balance, minimum payment, no-interest payment (PNGI), interest amount (IVA included), payment due date (next business day, Mexican holidays honored), payment progress (`paidAmount`, `remainingBalance`, `isPaid`), and `isGenerated`. Calculated fields are frozen at generation; only payment-progress fields change afterwards.
 
 **InstallmentPlan**
-Per-purchase installment tracking for MSI (interest-free) and MSCI (with interest). 1:1 with the purchase `Transaction`. Stores type, total months, current month, monthly amount, optional interest rate, and status (`ACTIVE`, `COMPLETED`, `CANCELLED`). The full purchase consumes credit immediately; the current mensualidad is included in each statement's PNGI and the plan advances one month per generated statement.
+Per-purchase installment tracking for MSI (interest-free) and MSCI (with interest). 1:1 with the purchase `Transaction`. Stores type, total months, current month, monthly amount, optional interest rate, and status (`ACTIVE`, `COMPLETED`, `CANCELLED`, `PAID_OFF`). The full purchase consumes credit immediately; the current mensualidad is included in each statement's PNGI and the plan advances one month per generated statement. Each billed installment is a system-generated `INSTALLMENT` transaction linked to its plan (`installmentPlanId`, `installmentNumber`).
 
 **Loan**
 Loan details, 1:1 extension of an Account of type `LOAN`. Stores principal, annual interest rate, term in months, start date, calculated monthly payment, and remaining balance.
@@ -115,6 +115,9 @@ The goal's progress is always in sync with its account balance. No separate "sav
 - **Interest** → charged only when the previous statement was paid below its no-interest payment; average daily balance × rate / 360 × days, plus 16% IVA. The first statement carries no interest.
 - **Over-limit** → `EXPENSE` on a card that would exceed `creditLimit + overLimitTolerance` is rejected.
 - **MSI / MSCI purchase** → `EXPENSE` with `msiMonths`/`msiType` creates an `InstallmentPlan`.
+- **Installments per cut** → at each cut, every ACTIVE plan bills one `INSTALLMENT` transaction (`"<purchase> (n/N)"`, amount = mensualidad, dated on the cut, linked to the statement). MSI rows do not change the balance (the full purchase already counted); for MSCI the interest component is added to the balance as new debt. Like the interest charge, it is applied after the statement balance is frozen and billed through PNGI. `INSTALLMENT` is system-only (not creatable, editable or deletable) and never counts as spending or income.
+- **Early payoff** → a `PAYMENT` that leaves the card balance at `<= 0` marks its ACTIVE plans `PAID_OFF` (no more installments, out of PNGI). Removing that payment later does not reopen them.
+- **Statement detail** → `GET /card-statements/:id/transactions` lists installments first, each with a plan summary (billed / paid / remaining installments, principal/interest split, remaining principal, purchase).
 - **Payment** → `Transaction PAYMENT` to the card's account → balance decreases; the payment is also applied to the latest unpaid statement (`paidAmount`, `remainingBalance`, `isPaid`).
 - **Feature flag** → all of the above writes are gated by `CREDIT_CARD_REACTIVE_ENABLED` (default `false`). `availableCredit` and `paymentDueDate` reads are never gated.
 

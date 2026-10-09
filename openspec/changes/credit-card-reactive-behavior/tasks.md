@@ -430,3 +430,40 @@ Chain strategy: feature-branch-chain
   - **Dependencies**: T-064
   - **Verification**: `bun run test` — 234 pass, `bun run build` — success, `bunx biome check .` — 3 pre-existing errors only
   - **TDD**: RED (2 new dashboard tests for positive CREDIT netWorth) → GREEN (confirmed with existing Math.abs logic)
+
+## Phase 8: Installment transactions
+
+- [x] T-066 Schema: add `INSTALLMENT` to `TransactionType`, `PAID_OFF` to `InstallmentPlanStatus`, `Transaction.installmentPlanId` (FK → InstallmentPlan, cascade, indexed) + `installmentNumber`, named relations `PlanPurchase` / `PlanInstallments`. Migration `20261008210000_add_installment_transactions` (DDL only).
+  - **Files**: `prisma/schema.prisma`, `prisma/migrations/20261008210000_add_installment_transactions/migration.sql`, `src/credit-cards/calculations/credit-calculation.service.ts`
+  - **Verification**: `bunx prisma validate`, `bunx prisma migrate deploy`, `bunx prisma generate`, `bun run build`
+  - **TDD**: Structural (no logic) — triangulation skipped
+
+- [x] T-067 Generator bills one `INSTALLMENT` row per ACTIVE plan at each cut (before advancing it); period queries exclude `INSTALLMENT`; MSCI interest component increments `account.balance` after the freeze (mirrors `INTEREST_CHARGE`). Pure helpers `splitInstallment` / `formatInstallmentDescription`.
+  - **Files**: `src/card-statements/statement-generation.service.ts`, `src/card-statements/installment-billing.util.ts` (+ specs, integration FakeStore)
+  - **Verification**: `bun run test src/card-statements` — pass
+  - **TDD**: RED (MSI 1/3→3/3 lifecycle, MSCI interest, create payload, query exclusion) → GREEN → TRIANGULATE (fallback description, purchase after period, rounding, negative clamp)
+
+- [x] T-068 Early payoff: PAYMENT leaving CREDIT balance `<= 0` marks ACTIVE plans `PAID_OFF` (flag on). Known limitation documented: deleting/editing the payment does not reopen plans.
+  - **Files**: `src/transactions/transactions.service.ts` (+ spec)
+  - **Verification**: `bun run test src/transactions` — pass
+  - **TDD**: RED → GREEN → TRIANGULATE (zero, saldo a favor, 0.01 left, LOAN destination, flag off)
+
+- [x] T-069 `INSTALLMENT` is system-only: Create/Update DTOs restricted to INCOME/EXPENSE/TRANSFER/PAYMENT; update/remove reject INSTALLMENT with 400; list filters accept INSTALLMENT.
+  - **Files**: `src/transactions/dto/transaction.dto.ts`, `src/transactions/transactions.service.ts`, `src/transactions/transactions.controller.ts`, `src/accounts/dto/account-transactions.dto.ts`
+  - **Verification**: `bun run test src/transactions` — pass
+  - **TDD**: RED (update/remove guards, query filter) → GREEN; DTO rejection tests pass as guards (local enum already lacked INSTALLMENT)
+
+- [x] T-070 Aggregation audit: dashboard recent transactions exclude INSTALLMENT; budgets, banks/accounts income-vs-expenses, top categories, waterfall and average daily balance already filter explicit types (guard tests added for budgets and banks).
+  - **Files**: `src/dashboard/dashboard.service.ts` (+ spec), `src/budgets/budgets.service.spec.ts`, `src/banks/banks.service.spec.ts`
+  - **Verification**: `bun run test src/dashboard src/budgets src/banks` — pass
+  - **TDD**: RED (dashboard) → GREEN; characterization guards for budgets/banks
+
+- [x] T-071 Statement detail: `GET /card-statements/:id/transactions` returns INSTALLMENT rows first with an `installment` summary (`buildInstallmentDetail`), others with `installment: null`; plans loaded in one batch; Swagger `StatementTransactionResponseDto` / `InstallmentDetailDto`.
+  - **Files**: `src/card-statements/card-statements.service.ts`, `src/card-statements/card-statements.controller.ts`, `src/card-statements/dto/card-statement.dto.ts`, `src/card-statements/installment-billing.util.ts`, `src/transactions/dto/transaction.dto.ts` (+ specs)
+  - **Verification**: `bun run test src/card-statements` — pass; `bun run build` — success
+  - **TDD**: RED (ordering, batch query, PAID_OFF) → GREEN → TRIANGULATE (MSI/MSCI split, unlinked statement)
+
+- [x] T-072 Docs: this phase, installment-plans spec requirements, `savy-planning.md` CreditCard section.
+  - **Files**: `openspec/changes/credit-card-reactive-behavior/tasks.md`, `openspec/changes/credit-card-reactive-behavior/specs/installment-plans/spec.md`, `savy-planning.md`
+  - **TDD**: Docs only
+

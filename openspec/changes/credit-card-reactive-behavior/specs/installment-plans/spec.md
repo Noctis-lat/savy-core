@@ -138,3 +138,101 @@ At statement generation, the system SHALL include the current month's mensualida
 - THEN the mensualidad of `500.00` is included in this statement
 - AND `currentMonth` becomes `12` and `status` becomes `COMPLETED`
 - AND subsequent statements do NOT include this plan's mensualidad
+
+### Requirement: Installment Transaction per Cut
+
+At each statement generation, the system SHALL create one `INSTALLMENT` transaction for every ACTIVE plan whose purchase date is on or before the period end, BEFORE advancing the plan. The row MUST have `accountId` = card account, `statementId` = the new statement, `date` = period end (cut day), `installmentPlanId` = plan id, `installmentNumber` = `currentMonth + 1`, `amount` = `monthlyAmount`, `categoryId` = null and `description` = `"<purchase description> (n/N)"` (fallback `"Installment purchase (n/N)"`). Period queries of the generator (period transactions, later-transactions rollback, average daily balance) MUST exclude `INSTALLMENT` rows.
+
+#### Scenario: MSI 3-month lifecycle
+
+- GIVEN an MSI purchase "Laptop" of `3000.00` in 3 months, dated inside the first period
+- WHEN three consecutive statements are generated
+- THEN statements 1, 2 and 3 contain `Laptop (1/3)`, `Laptop (2/3)` and `Laptop (3/3)` of `1000.00` each, dated on their cut day
+- AND the plan becomes COMPLETED and the 4th statement contains no installment row
+
+#### Scenario: Plan purchased after the period
+
+- GIVEN an MSI purchase dated after the period end
+- WHEN the statement for that period is generated
+- THEN no installment row is created for it
+
+### Requirement: No Balance Effect for MSI Installments
+
+`INSTALLMENT` rows of MSI plans MUST NOT change `account.balance`; the full purchase already counted as debt. The frozen statement balance, PNGI and minimum payment MUST be identical with or without the installment rows.
+
+#### Scenario: Balance and statement unchanged
+
+- GIVEN an MSI plan of `3000.00` in 3 months and a card balance of `3000.00`
+- WHEN the first statement is generated
+- THEN the card balance stays `3000.00`, the statement balance is `3000.00` and PNGI is `1000.00`
+
+### Requirement: MSCI Interest Component
+
+For MSCI plans, the system SHALL increment `account.balance` by the interest component of the installment, `monthlyAmount − purchase / totalMonths`, rounded to 2 decimals (never negative). Like `INTEREST_CHARGE`, it is applied AFTER the statement balance is frozen: it is NOT part of that statement's `balance`, it is billed in that statement through PNGI (the current mensualidad includes it) and it carries into the next period's opening balance. The detail response exposes the principal/interest split instead of a separate row.
+
+#### Scenario: Interest becomes debt at the cut
+
+- GIVEN an MSCI purchase of `6000.00` in 12 months with `monthlyAmount = 560.00`
+- WHEN the first statement is generated
+- THEN the card balance becomes `6060.00`, the statement balance is `6000.00` and PNGI is `560.00`
+
+#### Scenario: No double counting next period
+
+- GIVEN the previous scenario and a payment of `560.00` before the next cut
+- WHEN the second statement is generated
+- THEN its balance is `5500.00` and PNGI is `560.00` (5500 − 5500 remaining principal + 560)
+
+### Requirement: Early Payoff (PAID_OFF)
+
+When a `PAYMENT` to a CREDIT account leaves its balance at `<= 0` (flag on), the system SHALL mark every ACTIVE plan whose purchase belongs to that account as `PAID_OFF`. PAID_OFF plans generate no further installment rows and are excluded from PNGI. Deleting or editing that payment later does NOT reopen the plans (known limitation).
+
+#### Scenario: Full payoff
+
+- GIVEN a card with balance `3000.00` and an ACTIVE MSI plan
+- WHEN a PAYMENT of `3000.00` is created
+- THEN the plan status becomes `PAID_OFF`
+
+#### Scenario: Partial payment
+
+- GIVEN a card with balance `3000.00` and an ACTIVE MSI plan
+- WHEN a PAYMENT of `2999.99` is created
+- THEN the plan stays `ACTIVE`
+
+#### Scenario: Flag off
+
+- GIVEN `CREDIT_CARD_REACTIVE_ENABLED` is not `true`
+- WHEN a PAYMENT clears the card
+- THEN plans are not modified
+
+### Requirement: INSTALLMENT is System-Only
+
+`INSTALLMENT` transactions SHALL only be created by the statement engine. Create/Update transaction DTOs MUST reject `type = INSTALLMENT` (400) and update/delete of an `INSTALLMENT` transaction MUST be rejected (400). Aggregations (income vs expenses, budgets spent, top categories, dashboard recent activity) MUST NOT count them; the original purchase counts once, in the month it was made. List endpoints MAY show them and MAY filter by them.
+
+#### Scenario: Reject user-created installment
+
+- WHEN a client POSTs a transaction with `type = INSTALLMENT`
+- THEN the API responds 400
+
+#### Scenario: Reject edits and deletes
+
+- GIVEN an INSTALLMENT transaction
+- WHEN the client PATCHes or DELETEs it
+- THEN the API responds 400 and the balance is unchanged
+
+### Requirement: Statement Detail Response
+
+`GET /api/card-statements/:id/transactions` SHALL return INSTALLMENT rows first (by installment number, then date) followed by the other rows by date and creation time. Each INSTALLMENT row includes `installment` = { `number`, `totalInstallments`, `billedInstallments`, `paidInstallments` (rows whose statement `isPaid`; all if PAID_OFF), `remainingInstallments`, `monthlyAmount`, `principalAmount`, `interestAmount`, `remainingAmount` (purchase × remaining / total), `type`, `status`, `purchase` { `id`, `description`, `amount`, `date` } }. Money values are strings with 2 decimals. Other rows have `installment: null`. Plans are loaded in one batch query.
+
+#### Scenario: Installments first with summary
+
+- GIVEN a statement with an EXPENSE, a PAYMENT and installments `TV (5/12)` and `Laptop (2/3)`
+- WHEN the detail is requested
+- THEN the order is `Laptop (2/3)`, `TV (5/12)`, EXPENSE, PAYMENT
+- AND `Laptop (2/3)` reports 2 billed, 1 paid, 2 remaining and `remainingAmount = "2000.00"`
+
+#### Scenario: PAID_OFF plan
+
+- GIVEN an installment of a PAID_OFF plan
+- WHEN the detail is requested
+- THEN `paidInstallments = totalInstallments`, `remainingInstallments = 0` and `remainingAmount = "0.00"`
+
