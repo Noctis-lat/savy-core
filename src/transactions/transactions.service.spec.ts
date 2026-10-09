@@ -870,24 +870,42 @@ describe("TransactionsService — applyBalance direction by account type (sign c
 		service = module.get(TransactionsService);
 	});
 
-	function setupBalanceMocks(account: { id: string; type: string; balance: Prisma.Decimal; profileId: string }) {
+	function setupBalanceMocks(account: {
+		id: string;
+		type: string;
+		balance: Prisma.Decimal;
+		profileId: string;
+	}) {
 		const tx: Record<string, Record<string, jest.Mock>> = {};
 		tx.account = {
 			findFirst: jest.fn().mockResolvedValue(account),
 			update: jest.fn().mockResolvedValue(account),
 		};
 		tx.transaction = {
-			create: jest.fn().mockResolvedValue({ id: "tx-1", accountId: account.id, type: "EXPENSE", amount: new Decimal(0) }),
+			create: jest.fn().mockResolvedValue({
+				id: "tx-1",
+				accountId: account.id,
+				type: "EXPENSE",
+				amount: new Decimal(0),
+			}),
 		};
 		tx.category = { findFirst: jest.fn().mockResolvedValue(null) };
 		tx.creditCard = { findFirst: jest.fn().mockResolvedValue(null) };
 		tx.installmentPlan = { create: jest.fn().mockResolvedValue({}) };
-		tx.cardStatement = { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn().mockResolvedValue({}) };
+		tx.cardStatement = {
+			findFirst: jest.fn().mockResolvedValue(null),
+			update: jest.fn().mockResolvedValue({}),
+		};
 		prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx));
 		return tx;
 	}
 
-	function buildDto(accountId: string, type: TxType, amount: number, destinationAccountId: string | null = null): CreateTransactionDto {
+	function buildDto(
+		accountId: string,
+		type: TxType,
+		amount: number,
+		destinationAccountId: string | null = null,
+	): CreateTransactionDto {
 		return {
 			accountId,
 			destinationAccountId,
@@ -912,9 +930,7 @@ describe("TransactionsService — applyBalance direction by account type (sign c
 
 		await service.create("p1", buildDto("acc-credit", "EXPENSE", 500));
 
-		const updateCall = tx.account.update.mock.calls.find(
-			(c) => c[0].where.id === "acc-credit",
-		);
+		const updateCall = tx.account.update.mock.calls.find((c) => c[0].where.id === "acc-credit");
 		expect(updateCall).toBeDefined();
 		expect(updateCall![0].data.balance).toEqual({ increment: 500 });
 	});
@@ -922,12 +938,23 @@ describe("TransactionsService — applyBalance direction by account type (sign c
 	// ── CREDIT: PAYMENT (as destination) decrements (less debt) ──
 
 	it("(2) PAYMENT destination CREDIT decrements balance (less debt)", async () => {
-		const sourceAccount = { id: "acc-debit", type: "DEBIT", balance: new Decimal(10000), profileId: "p1" };
-		const creditAccount = { id: "acc-credit", type: "CREDIT", balance: new Decimal(5000), profileId: "p1" };
+		const sourceAccount = {
+			id: "acc-debit",
+			type: "DEBIT",
+			balance: new Decimal(10000),
+			profileId: "p1",
+		};
+		const creditAccount = {
+			id: "acc-credit",
+			type: "CREDIT",
+			balance: new Decimal(5000),
+			profileId: "p1",
+		};
 
 		const tx: Record<string, Record<string, jest.Mock>> = {};
 		tx.account = {
-			findFirst: jest.fn()
+			findFirst: jest
+				.fn()
 				.mockResolvedValueOnce(sourceAccount)
 				.mockResolvedValueOnce(creditAccount),
 			update: jest.fn().mockResolvedValue(sourceAccount),
@@ -942,9 +969,7 @@ describe("TransactionsService — applyBalance direction by account type (sign c
 		await service.create("p1", buildDto("acc-debit", "PAYMENT", 2000, "acc-credit"));
 
 		// Find the update for the credit destination account
-		const creditUpdate = tx.account.update.mock.calls.find(
-			(c) => c[0].where.id === "acc-credit",
-		);
+		const creditUpdate = tx.account.update.mock.calls.find((c) => c[0].where.id === "acc-credit");
 		expect(creditUpdate).toBeDefined();
 		expect(creditUpdate![0].data.balance).toEqual({ decrement: 2000 });
 	});
@@ -961,9 +986,7 @@ describe("TransactionsService — applyBalance direction by account type (sign c
 
 		await service.create("p1", buildDto("acc-credit", "INCOME", 500));
 
-		const updateCall = tx.account.update.mock.calls.find(
-			(c) => c[0].where.id === "acc-credit",
-		);
+		const updateCall = tx.account.update.mock.calls.find((c) => c[0].where.id === "acc-credit");
 		expect(updateCall).toBeDefined();
 		expect(updateCall![0].data.balance).toEqual({ decrement: 500 });
 	});
@@ -980,9 +1003,7 @@ describe("TransactionsService — applyBalance direction by account type (sign c
 
 		await service.create("p1", buildDto("acc-debit", "EXPENSE", 500));
 
-		const updateCall = tx.account.update.mock.calls.find(
-			(c) => c[0].where.id === "acc-debit",
-		);
+		const updateCall = tx.account.update.mock.calls.find((c) => c[0].where.id === "acc-debit");
 		expect(updateCall).toBeDefined();
 		expect(updateCall![0].data.balance).toEqual({ decrement: 500 });
 	});
@@ -999,9 +1020,7 @@ describe("TransactionsService — applyBalance direction by account type (sign c
 
 		await service.create("p1", buildDto("acc-debit", "INCOME", 500));
 
-		const updateCall = tx.account.update.mock.calls.find(
-			(c) => c[0].where.id === "acc-debit",
-		);
+		const updateCall = tx.account.update.mock.calls.find((c) => c[0].where.id === "acc-debit");
 		expect(updateCall).toBeDefined();
 		expect(updateCall![0].data.balance).toEqual({ increment: 500 });
 	});
@@ -1009,12 +1028,23 @@ describe("TransactionsService — applyBalance direction by account type (sign c
 	// ── PAYMENT source DEBIT: decrements (unchanged) ──
 
 	it("(6) PAYMENT source DEBIT decrements balance (unchanged)", async () => {
-		const sourceAccount = { id: "acc-debit", type: "DEBIT", balance: new Decimal(10000), profileId: "p1" };
-		const creditAccount = { id: "acc-credit", type: "CREDIT", balance: new Decimal(5000), profileId: "p1" };
+		const sourceAccount = {
+			id: "acc-debit",
+			type: "DEBIT",
+			balance: new Decimal(10000),
+			profileId: "p1",
+		};
+		const creditAccount = {
+			id: "acc-credit",
+			type: "CREDIT",
+			balance: new Decimal(5000),
+			profileId: "p1",
+		};
 
 		const tx: Record<string, Record<string, jest.Mock>> = {};
 		tx.account = {
-			findFirst: jest.fn()
+			findFirst: jest
+				.fn()
 				.mockResolvedValueOnce(sourceAccount)
 				.mockResolvedValueOnce(creditAccount),
 			update: jest.fn().mockResolvedValue(sourceAccount),
@@ -1028,9 +1058,7 @@ describe("TransactionsService — applyBalance direction by account type (sign c
 
 		await service.create("p1", buildDto("acc-debit", "PAYMENT", 2000, "acc-credit"));
 
-		const debitUpdate = tx.account.update.mock.calls.find(
-			(c) => c[0].where.id === "acc-debit",
-		);
+		const debitUpdate = tx.account.update.mock.calls.find((c) => c[0].where.id === "acc-debit");
 		expect(debitUpdate).toBeDefined();
 		expect(debitUpdate![0].data.balance).toEqual({ decrement: 2000 });
 	});
@@ -1038,14 +1066,22 @@ describe("TransactionsService — applyBalance direction by account type (sign c
 	// ── TRANSFER source CREDIT: increments (more debt on credit) ──
 
 	it("(7) TRANSFER source CREDIT increments balance (more debt)", async () => {
-		const creditAccount = { id: "acc-credit", type: "CREDIT", balance: new Decimal(5000), profileId: "p1" };
-		const debitAccount = { id: "acc-debit", type: "DEBIT", balance: new Decimal(1000), profileId: "p1" };
+		const creditAccount = {
+			id: "acc-credit",
+			type: "CREDIT",
+			balance: new Decimal(5000),
+			profileId: "p1",
+		};
+		const debitAccount = {
+			id: "acc-debit",
+			type: "DEBIT",
+			balance: new Decimal(1000),
+			profileId: "p1",
+		};
 
 		const tx: Record<string, Record<string, jest.Mock>> = {};
 		tx.account = {
-			findFirst: jest.fn()
-				.mockResolvedValueOnce(creditAccount)
-				.mockResolvedValueOnce(debitAccount),
+			findFirst: jest.fn().mockResolvedValueOnce(creditAccount).mockResolvedValueOnce(debitAccount),
 			update: jest.fn().mockResolvedValue(creditAccount),
 		};
 		tx.transaction = { create: jest.fn().mockResolvedValue({ id: "tx-tx", type: "TRANSFER" }) };
@@ -1057,9 +1093,7 @@ describe("TransactionsService — applyBalance direction by account type (sign c
 
 		await service.create("p1", buildDto("acc-credit", "TRANSFER", 2000, "acc-debit"));
 
-		const creditUpdate = tx.account.update.mock.calls.find(
-			(c) => c[0].where.id === "acc-credit",
-		);
+		const creditUpdate = tx.account.update.mock.calls.find((c) => c[0].where.id === "acc-credit");
 		expect(creditUpdate).toBeDefined();
 		expect(creditUpdate![0].data.balance).toEqual({ increment: 2000 });
 	});
