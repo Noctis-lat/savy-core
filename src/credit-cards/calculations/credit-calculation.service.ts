@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import type { InstallmentPlanStatus } from "../../generated/prisma/client";
 import { Prisma } from "../../generated/prisma/client";
 import { getNextBusinessDay } from "./business-days.util";
 import { getMexicanHolidays } from "./mexican-holidays";
@@ -48,7 +49,8 @@ interface PngiInput {
 		type: "MSI" | "MSCI";
 		remainingBalance: Decimal;
 		currentMensualidad: Decimal;
-		status: "ACTIVE" | "COMPLETED" | "CANCELLED";
+		// Only ACTIVE plans count; COMPLETED, CANCELLED and PAID_OFF are ignored
+		status: InstallmentPlanStatus;
 	}>;
 }
 

@@ -125,6 +125,8 @@ enum TransactionType {
   EXPENSE
   TRANSFER
   PAYMENT
+  // System-only: one row per installment billed at a statement cut (never user-created)
+  INSTALLMENT
 }
 
 model Transaction {
@@ -144,16 +146,22 @@ model Transaction {
   statementId         String?         @map("statement_id")
   commissionType      CommissionType? @map("commission_type")
 
+  // INSTALLMENT rows only: the plan this installment belongs to and its 1-based number
+  installmentPlanId   String?         @map("installment_plan_id")
+  installmentNumber   Int?            @map("installment_number")
+
   account            Account   @relation("AccountTransactions", fields: [accountId], references: [id], onDelete: Cascade)
   destinationAccount Account?  @relation("DestinationTransactions", fields: [destinationAccountId], references: [id], onDelete: SetNull)
   category           Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   statement          CardStatement?    @relation(fields: [statementId], references: [id], onDelete: SetNull)
-  installmentPlan    InstallmentPlan?
+  installmentPlan    InstallmentPlan?  @relation("PlanPurchase")
+  billedPlan         InstallmentPlan?  @relation("PlanInstallments", fields: [installmentPlanId], references: [id], onDelete: Cascade)
 
   @@index([accountId, date])
   @@index([destinationAccountId])
   @@index([categoryId])
   @@index([statementId])
+  @@index([installmentPlanId])
   @@map("transactions")
 }
 
@@ -293,7 +301,8 @@ model InstallmentPlan {
   createdAt     DateTime              @default(now()) @map("created_at")
   updatedAt     DateTime              @updatedAt @map("updated_at")
 
-  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  transaction  Transaction   @relation("PlanPurchase", fields: [transactionId], references: [id], onDelete: Cascade)
+  installments Transaction[] @relation("PlanInstallments")
 
   @@index([transactionId])
   @@map("installment_plans")
@@ -337,6 +346,8 @@ enum InstallmentPlanStatus {
   ACTIVE
   COMPLETED
   CANCELLED
+  // Settled early: the whole card debt was paid off while the plan was active
+  PAID_OFF
 }
 
 // ─── Recurring Expense ───────────────────────────────────────────────
