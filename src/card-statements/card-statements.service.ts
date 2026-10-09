@@ -3,6 +3,14 @@ import { ConfigService } from "@nestjs/config";
 import type { CardStatement, Transaction } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateCardStatementDto, UpdateCardStatementDto } from "./dto/card-statement.dto";
+import {
+	buildInstallmentDetail,
+	type InstallmentDetail,
+	type InstallmentPlanForDetail,
+} from "./installment-billing.util";
+
+/** A statement transaction; INSTALLMENT rows carry their plan summary. */
+export type StatementTransaction = Transaction & { installment: InstallmentDetail | null };
 
 /** Fields that are generation-only when the reactive behavior is enabled. */
 const GENERATION_ONLY_FIELDS = [
@@ -56,16 +64,69 @@ export class CardStatementsService {
 	}
 
 	/**
-	 * Returns the transactions that compose a statement (purchases, payments,
-	 * commissions and interest charges), linked via Transaction.statementId at
-	 * generation time. Ordered chronologically for the statement detail view.
+	 * Returns the transactions that compose a statement (installments, purchases,
+	 * payments, commissions and interest charges), linked via Transaction.statementId
+	 * at generation time.
+	 *
+	 * INSTALLMENT rows come first (by installment number, then date) and include an
+	 * `installment` summary of their plan; every other row follows chronologically
+	 * with `installment: null`. Plans, purchases and installment history are loaded
+	 * in a single batch query (no N+1).
 	 */
-	async findTransactions(id: string, profileId: string): Promise<Transaction[]> {
+	async findTransactions(id: string, profileId: string): Promise<StatementTransaction[]> {
 		await this.findOne(id, profileId);
-		return this.prisma.transaction.findMany({
+		const rows = await this.prisma.transaction.findMany({
 			where: { statementId: id },
 			orderBy: [{ date: "asc" }, { createdAt: "asc" }],
 		});
+
+		const installmentRows = rows.filter((r) => r.type === "INSTALLMENT");
+		const otherRows = rows
+			.filter((r) => r.type !== "INSTALLMENT")
+			.map((r) => ({ ...r, installment: null }));
+		if (installmentRows.length === 0) {
+			return otherRows;
+		}
+
+		const plansById = await this.loadPlansForDetail(installmentRows);
+		const detailed = installmentRows
+			.map((r) => {
+				const plan = r.installmentPlanId ? plansById.get(r.installmentPlanId) : undefined;
+				return {
+					...r,
+					installment:
+						plan && r.installmentNumber !== null
+							? buildInstallmentDetail(r.installmentNumber, plan)
+							: null,
+				};
+			})
+			.sort(
+				(a, b) =>
+					(a.installmentNumber ?? 0) - (b.installmentNumber ?? 0) ||
+					a.date.getTime() - b.date.getTime(),
+			);
+
+		return [...detailed, ...otherRows];
+	}
+
+	private async loadPlansForDetail(
+		installmentRows: Transaction[],
+	): Promise<Map<string, InstallmentPlanForDetail>> {
+		const planIds = [
+			...new Set(
+				installmentRows
+					.map((r) => r.installmentPlanId)
+					.filter((planId): planId is string => planId !== null),
+			),
+		];
+		const plans = await this.prisma.installmentPlan.findMany({
+			where: { id: { in: planIds } },
+			include: {
+				transaction: { select: { id: true, description: true, amount: true, date: true } },
+				installments: { select: { statement: { select: { isPaid: true } } } },
+			},
+		});
+		return new Map(plans.map((p) => [p.id, p]));
 	}
 
 	async create(profileId: string, dto: CreateCardStatementDto): Promise<CardStatement> {

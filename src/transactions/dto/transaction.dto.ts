@@ -254,6 +254,18 @@ export class TransactionResponseDto {
 		description: "Commission type (null for regular transactions)",
 	})
 	commissionType?: CommissionType | null;
+
+	@ApiPropertyOptional({
+		example: "plan-uuid",
+		description: "Installment plan billed by this row (INSTALLMENT rows only, read-only)",
+	})
+	installmentPlanId?: string | null;
+
+	@ApiPropertyOptional({
+		example: 2,
+		description: "1-based installment number within its plan (INSTALLMENT rows only)",
+	})
+	installmentNumber?: number | null;
 }
 
 export class TransactionsInfoDto {

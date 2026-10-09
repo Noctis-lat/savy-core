@@ -3,9 +3,12 @@ import { ConfigService } from "@nestjs/config";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
+import { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { CardStatementsService } from "./card-statements.service";
 import { CreateCardStatementDto, QueryCardStatementsDto } from "./dto/card-statement.dto";
+
+const Decimal = Prisma.Decimal;
 
 describe("CardStatementsService (findAll filters)", () => {
 	let service: CardStatementsService;
@@ -99,12 +102,14 @@ describe("CardStatementsService.findTransactions", () => {
 	let prisma: {
 		cardStatement: { findFirst: jest.Mock };
 		transaction: { findMany: jest.Mock };
+		installmentPlan: { findMany: jest.Mock };
 	};
 
 	beforeEach(async () => {
 		prisma = {
 			cardStatement: { findFirst: jest.fn() },
 			transaction: { findMany: jest.fn() },
+			installmentPlan: { findMany: jest.fn() },
 		};
 		const module: TestingModule = await Test.createTestingModule({
 			providers: [
@@ -116,17 +121,106 @@ describe("CardStatementsService.findTransactions", () => {
 		service = module.get(CardStatementsService);
 	});
 
-	it("returns the transactions linked to the statement, oldest first", async () => {
-		const rows = [{ id: "tx-1" }, { id: "tx-2" }];
+	it("returns the transactions linked to the statement, oldest first, with installment null", async () => {
+		const rows = [
+			{ id: "tx-1", type: "EXPENSE" },
+			{ id: "tx-2", type: "PAYMENT" },
+		];
 		prisma.cardStatement.findFirst.mockResolvedValue({ id: "stmt-1" });
 		prisma.transaction.findMany.mockResolvedValue(rows);
 
 		const result = await service.findTransactions("stmt-1", "profile-1");
 
-		expect(result).toBe(rows);
+		expect(result).toEqual([
+			{ id: "tx-1", type: "EXPENSE", installment: null },
+			{ id: "tx-2", type: "PAYMENT", installment: null },
+		]);
 		const call = prisma.transaction.findMany.mock.calls[0][0];
 		expect(call.where).toEqual({ statementId: "stmt-1" });
 		expect(call.orderBy).toEqual([{ date: "asc" }, { createdAt: "asc" }]);
+		// No installment rows → no plan lookup
+		expect(prisma.installmentPlan.findMany).not.toHaveBeenCalled();
+	});
+
+	it("lists INSTALLMENT rows first with their plan summary, loading plans in one batch", async () => {
+		const cut = new Date(2026, 9, 15, 23, 59, 59, 999);
+		prisma.cardStatement.findFirst.mockResolvedValue({ id: "stmt-2" });
+		prisma.transaction.findMany.mockResolvedValue([
+			{ id: "tx-buy", type: "EXPENSE", date: new Date(2026, 9, 1) },
+			{ id: "tx-pay", type: "PAYMENT", date: new Date(2026, 9, 10) },
+			{
+				id: "tx-i-tv",
+				type: "INSTALLMENT",
+				date: cut,
+				installmentPlanId: "plan-tv",
+				installmentNumber: 5,
+			},
+			{
+				id: "tx-i-laptop",
+				type: "INSTALLMENT",
+				date: cut,
+				installmentPlanId: "plan-laptop",
+				installmentNumber: 2,
+			},
+		]);
+		prisma.installmentPlan.findMany.mockResolvedValue([
+			{
+				id: "plan-laptop",
+				type: "MSI",
+				status: "ACTIVE",
+				totalMonths: 3,
+				monthlyAmount: new Decimal(1000),
+				transaction: {
+					id: "tx-laptop",
+					description: "Laptop",
+					amount: new Decimal(3000),
+					date: new Date(2026, 8, 5),
+				},
+				installments: [{ statement: { isPaid: true } }, { statement: { isPaid: false } }],
+			},
+			{
+				id: "plan-tv",
+				type: "MSCI",
+				status: "PAID_OFF",
+				totalMonths: 12,
+				monthlyAmount: new Decimal(560),
+				transaction: {
+					id: "tx-tv",
+					description: "TV",
+					amount: new Decimal(6000),
+					date: new Date(2026, 4, 5),
+				},
+				installments: Array.from({ length: 5 }, () => ({ statement: { isPaid: false } })),
+			},
+		]);
+
+		const result = await service.findTransactions("stmt-2", "profile-1");
+
+		expect(result.map((r) => r.id)).toEqual(["tx-i-laptop", "tx-i-tv", "tx-buy", "tx-pay"]);
+		expect(prisma.installmentPlan.findMany).toHaveBeenCalledTimes(1);
+		const planQuery = prisma.installmentPlan.findMany.mock.calls[0][0];
+		expect(planQuery.where).toEqual({ id: { in: ["plan-tv", "plan-laptop"] } });
+
+		expect(result[0].installment).toMatchObject({
+			number: 2,
+			totalInstallments: 3,
+			billedInstallments: 2,
+			paidInstallments: 1,
+			remainingInstallments: 2,
+			remainingAmount: "2000.00",
+			purchase: { id: "tx-laptop", description: "Laptop", amount: "3000.00" },
+		});
+		expect(result[1].installment).toMatchObject({
+			number: 5,
+			type: "MSCI",
+			status: "PAID_OFF",
+			paidInstallments: 12,
+			remainingInstallments: 0,
+			principalAmount: "500.00",
+			interestAmount: "60.00",
+		});
+		expect(result[2].installment).toBeNull();
+		expect(result[3].installment).toBeNull();
 	});
 
 	it("scopes the statement lookup to the profile", async () => {

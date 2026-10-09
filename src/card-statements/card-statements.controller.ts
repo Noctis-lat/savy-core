@@ -8,12 +8,12 @@ import {
 	ApiSuccessResponse,
 } from "../common/decorators/api-response.decorator";
 import type { Profile } from "../generated/prisma/client";
-import { TransactionResponseDto } from "../transactions/dto/transaction.dto";
 import { CardStatementsService } from "./card-statements.service";
 import {
 	CardStatementResponseDto,
 	CreateCardStatementDto,
 	QueryCardStatementsDto,
+	StatementTransactionResponseDto,
 	UpdateCardStatementDto,
 } from "./dto/card-statement.dto";
 import { StatementGenerationService } from "./statement-generation.service";
@@ -56,9 +56,13 @@ export class CardStatementsController {
 	@Get(":id/transactions")
 	@ApiOperation({
 		summary:
-			"List the transactions of a card statement (purchases, payments, commissions, interest)",
+			"List the transactions of a card statement: installments first (with plan summary), then purchases, payments, commissions and interest",
 	})
-	@ApiArraySuccessResponse(200, TransactionResponseDto, "Returns the statement transactions")
+	@ApiArraySuccessResponse(
+		200,
+		StatementTransactionResponseDto,
+		"Returns the statement transactions",
+	)
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Card statement not found")
 	@ApiErrorResponse(500, "Internal server error")

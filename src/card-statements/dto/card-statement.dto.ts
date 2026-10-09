@@ -11,6 +11,7 @@ import {
 	IsString,
 	Min,
 } from "class-validator";
+import { TransactionResponseDto } from "../../transactions/dto/transaction.dto";
 
 enum CardStatementSortBy {
 	periodEnd = "periodEnd",
@@ -200,4 +201,82 @@ export class QueryCardStatementsDto {
 	@IsOptional()
 	@IsEnum(SortOrder)
 	order?: SortOrder;
+}
+
+// ─── Statement detail (GET /card-statements/:id/transactions) ────────────
+
+export class InstallmentPurchaseDto {
+	@ApiProperty({ example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890", description: "Purchase ID" })
+	id!: string;
+
+	@ApiProperty({
+		example: "Laptop",
+		nullable: true,
+		type: String,
+		description: "Purchase description",
+	})
+	description!: string | null;
+
+	@ApiProperty({ example: "3000.00", description: "Full purchase amount (2 decimals)" })
+	amount!: string;
+
+	@ApiProperty({ example: "2026-10-05T12:00:00.000Z", description: "Purchase date" })
+	date!: Date;
+}
+
+export class InstallmentDetailDto {
+	@ApiProperty({ example: 2, description: "Number of this installment (1-based)" })
+	number!: number;
+
+	@ApiProperty({ example: 3, description: "Total installments of the plan" })
+	totalInstallments!: number;
+
+	@ApiProperty({ example: 2, description: "Installment rows billed so far" })
+	billedInstallments!: number;
+
+	@ApiProperty({
+		example: 1,
+		description: "Installments whose statement is paid (all of them when the plan is PAID_OFF)",
+	})
+	paidInstallments!: number;
+
+	@ApiProperty({ example: 2, description: "totalInstallments − paidInstallments" })
+	remainingInstallments!: number;
+
+	@ApiProperty({ example: "1000.00", description: "Mensualidad (principal + interest)" })
+	monthlyAmount!: string;
+
+	@ApiProperty({ example: "1000.00", description: "Principal part of this installment" })
+	principalAmount!: string;
+
+	@ApiProperty({ example: "0.00", description: "Interest part of this installment (0 for MSI)" })
+	interestAmount!: string;
+
+	@ApiProperty({
+		example: "2000.00",
+		description: "Unpaid principal: purchase × remainingInstallments / total (0 if PAID_OFF)",
+	})
+	remainingAmount!: string;
+
+	@ApiProperty({ enum: ["MSI", "MSCI"], example: "MSI", description: "Installment plan type" })
+	type!: "MSI" | "MSCI";
+
+	@ApiProperty({
+		enum: ["ACTIVE", "COMPLETED", "CANCELLED", "PAID_OFF"],
+		example: "ACTIVE",
+		description: "Installment plan status",
+	})
+	status!: "ACTIVE" | "COMPLETED" | "CANCELLED" | "PAID_OFF";
+
+	@ApiProperty({ type: () => InstallmentPurchaseDto, description: "Original purchase" })
+	purchase!: InstallmentPurchaseDto;
+}
+
+export class StatementTransactionResponseDto extends TransactionResponseDto {
+	@ApiProperty({
+		type: () => InstallmentDetailDto,
+		nullable: true,
+		description: "Installment summary for INSTALLMENT rows; null for every other row",
+	})
+	installment!: InstallmentDetailDto | null;
 }
