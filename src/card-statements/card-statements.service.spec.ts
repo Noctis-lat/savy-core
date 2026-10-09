@@ -1,4 +1,4 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { plainToInstance } from "class-transformer";
@@ -91,6 +91,64 @@ describe("CardStatementsService.create (feature flag guard)", () => {
 
 		await service.create("profile-1", dto);
 		expect(prisma.cardStatement.create).toHaveBeenCalled();
+	});
+});
+
+describe("CardStatementsService.findTransactions", () => {
+	let service: CardStatementsService;
+	let prisma: {
+		cardStatement: { findFirst: jest.Mock };
+		transaction: { findMany: jest.Mock };
+	};
+
+	beforeEach(async () => {
+		prisma = {
+			cardStatement: { findFirst: jest.fn() },
+			transaction: { findMany: jest.fn() },
+		};
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [
+				CardStatementsService,
+				{ provide: PrismaService, useValue: prisma },
+				{ provide: ConfigService, useValue: { get: jest.fn().mockReturnValue("true") } },
+			],
+		}).compile();
+		service = module.get(CardStatementsService);
+	});
+
+	it("returns the transactions linked to the statement, oldest first", async () => {
+		const rows = [{ id: "tx-1" }, { id: "tx-2" }];
+		prisma.cardStatement.findFirst.mockResolvedValue({ id: "stmt-1" });
+		prisma.transaction.findMany.mockResolvedValue(rows);
+
+		const result = await service.findTransactions("stmt-1", "profile-1");
+
+		expect(result).toBe(rows);
+		const call = prisma.transaction.findMany.mock.calls[0][0];
+		expect(call.where).toEqual({ statementId: "stmt-1" });
+		expect(call.orderBy).toEqual([{ date: "asc" }, { createdAt: "asc" }]);
+	});
+
+	it("scopes the statement lookup to the profile", async () => {
+		prisma.cardStatement.findFirst.mockResolvedValue({ id: "stmt-1" });
+		prisma.transaction.findMany.mockResolvedValue([]);
+
+		await service.findTransactions("stmt-1", "profile-1");
+
+		const call = prisma.cardStatement.findFirst.mock.calls[0][0];
+		expect(call.where).toEqual({
+			id: "stmt-1",
+			creditCard: { account: { profileId: "profile-1" } },
+		});
+	});
+
+	it("throws NotFound when the statement does not belong to the user", async () => {
+		prisma.cardStatement.findFirst.mockResolvedValue(null);
+
+		await expect(service.findTransactions("stmt-x", "profile-1")).rejects.toThrow(
+			NotFoundException,
+		);
+		expect(prisma.transaction.findMany).not.toHaveBeenCalled();
 	});
 });
 

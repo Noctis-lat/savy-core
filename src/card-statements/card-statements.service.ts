@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { CardStatement } from "../generated/prisma/client";
+import type { CardStatement, Transaction } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateCardStatementDto, UpdateCardStatementDto } from "./dto/card-statement.dto";
 
@@ -53,6 +53,19 @@ export class CardStatementsService {
 			throw new NotFoundException("Card statement not found");
 		}
 		return statement;
+	}
+
+	/**
+	 * Returns the transactions that compose a statement (purchases, payments,
+	 * commissions and interest charges), linked via Transaction.statementId at
+	 * generation time. Ordered chronologically for the statement detail view.
+	 */
+	async findTransactions(id: string, profileId: string): Promise<Transaction[]> {
+		await this.findOne(id, profileId);
+		return this.prisma.transaction.findMany({
+			where: { statementId: id },
+			orderBy: [{ date: "asc" }, { createdAt: "asc" }],
+		});
 	}
 
 	async create(profileId: string, dto: CreateCardStatementDto): Promise<CardStatement> {

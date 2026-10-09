@@ -8,6 +8,7 @@ import {
 	ApiSuccessResponse,
 } from "../common/decorators/api-response.decorator";
 import type { Profile } from "../generated/prisma/client";
+import { TransactionResponseDto } from "../transactions/dto/transaction.dto";
 import { CardStatementsService } from "./card-statements.service";
 import {
 	CardStatementResponseDto,
@@ -50,6 +51,19 @@ export class CardStatementsController {
 	@ApiErrorResponse(500, "Internal server error")
 	async findOne(@Param("id") id: string, @CurrentUser() profile: Profile) {
 		return this.cardStatementsService.findOne(id, profile.id);
+	}
+
+	@Get(":id/transactions")
+	@ApiOperation({
+		summary:
+			"List the transactions of a card statement (purchases, payments, commissions, interest)",
+	})
+	@ApiArraySuccessResponse(200, TransactionResponseDto, "Returns the statement transactions")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Card statement not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async findTransactions(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.cardStatementsService.findTransactions(id, profile.id);
 	}
 
 	@Post()
