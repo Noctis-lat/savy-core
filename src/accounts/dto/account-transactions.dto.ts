@@ -7,6 +7,7 @@ enum TransactionType {
 	EXPENSE = "EXPENSE",
 	TRANSFER = "TRANSFER",
 	PAYMENT = "PAYMENT",
+	INSTALLMENT = "INSTALLMENT",
 }
 
 enum TransactionSortBy {

@@ -6,7 +6,11 @@ import { validate } from "class-validator";
 import { CreditCalculationService } from "../credit-cards/calculations/credit-calculation.service";
 import { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { CreateTransactionDto, QueryTransactionsDto } from "./dto/transaction.dto";
+import {
+	CreateTransactionDto,
+	QueryTransactionsDto,
+	UpdateTransactionDto,
+} from "./dto/transaction.dto";
 import { TransactionsService } from "./transactions.service";
 
 const Decimal = Prisma.Decimal;
@@ -1112,5 +1116,211 @@ describe("QueryTransactionsDto validation", () => {
 		const errors = await validate(instance, { whitelist: true, forbidNonWhitelisted: true });
 		const fieldErrors = errors.filter((e) => e.property === "order");
 		expect(fieldErrors.length).toBeGreaterThan(0);
+	});
+});
+
+// ─── Early payoff → PAID_OFF (T-069) ────────────────────────────────────
+//
+// A PAYMENT that leaves the CREDIT card balance at <= 0 settles every ACTIVE
+// installment plan of that card early.
+
+describe("TransactionsService — early payoff marks installment plans PAID_OFF (create)", () => {
+	let service: TransactionsService;
+	let prisma: { $transaction: jest.Mock };
+	let configService: { get: jest.Mock };
+
+	beforeEach(async () => {
+		configService = {
+			get: jest.fn((key: string) => (key === "CREDIT_CARD_REACTIVE_ENABLED" ? "true" : undefined)),
+		};
+		prisma = { $transaction: jest.fn() };
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [
+				TransactionsService,
+				{ provide: PrismaService, useValue: prisma },
+				{ provide: ConfigService, useValue: configService },
+				{ provide: CreditCalculationService, useValue: {} },
+			],
+		}).compile();
+		service = module.get(TransactionsService);
+	});
+
+	/** PAYMENT from DEBIT to `destType`; `balanceAfter` is the destination balance read back. */
+	function setup(destType: "CREDIT" | "LOAN", balanceAfter: Prisma.Decimal) {
+		const source = { id: "acc-debit", type: "DEBIT", balance: new Decimal(10000), profileId: "p1" };
+		const dest = { id: "acc-dest", type: destType, balance: new Decimal(3000), profileId: "p1" };
+		const tx: Record<string, Record<string, jest.Mock>> = {
+			account: {
+				findFirst: jest
+					.fn()
+					.mockResolvedValueOnce(source)
+					.mockResolvedValueOnce(dest)
+					.mockResolvedValueOnce({ balance: balanceAfter }),
+				update: jest.fn().mockResolvedValue({}),
+			},
+			transaction: { create: jest.fn().mockResolvedValue({ id: "tx-payment" }) },
+			category: { findFirst: jest.fn() },
+			cardStatement: { findFirst: jest.fn().mockResolvedValue(null) },
+			installmentPlan: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
+		};
+		prisma.$transaction.mockImplementation(async (cb: (t: unknown) => Promise<unknown>) => cb(tx));
+		return tx;
+	}
+
+	function paymentDto(amount: number): CreateTransactionDto {
+		return {
+			accountId: "acc-debit",
+			destinationAccountId: "acc-dest",
+			type: "PAYMENT" as TxType,
+			amount,
+		} as unknown as CreateTransactionDto;
+	}
+
+	it("(1) PAYMENT that clears the card marks its ACTIVE plans PAID_OFF", async () => {
+		const tx = setup("CREDIT", new Decimal(0));
+
+		await service.create("p1", paymentDto(3000));
+
+		expect(tx.account.findFirst).toHaveBeenLastCalledWith({
+			where: { id: "acc-dest" },
+			select: { balance: true },
+		});
+		expect(tx.installmentPlan.updateMany).toHaveBeenCalledWith({
+			where: { status: "ACTIVE", transaction: { accountId: "acc-dest" } },
+			data: { status: "PAID_OFF" },
+		});
+	});
+
+	it("(2) overpayment leaving a saldo a favor also pays plans off", async () => {
+		const tx = setup("CREDIT", new Decimal(-250));
+
+		await service.create("p1", paymentDto(3250));
+
+		expect(tx.installmentPlan.updateMany).toHaveBeenCalledTimes(1);
+	});
+
+	it("(3) partial PAYMENT leaving debt > 0 keeps plans ACTIVE", async () => {
+		const tx = setup("CREDIT", new Decimal("0.01"));
+
+		await service.create("p1", paymentDto(2999.99));
+
+		expect(tx.installmentPlan.updateMany).not.toHaveBeenCalled();
+	});
+
+	it("(4) PAYMENT to a LOAN never touches installment plans", async () => {
+		const tx = setup("LOAN", new Decimal(0));
+
+		await service.create("p1", paymentDto(3000));
+
+		expect(tx.installmentPlan.updateMany).not.toHaveBeenCalled();
+	});
+
+	it("(5) flag off → plans are never paid off", async () => {
+		configService.get.mockReturnValue("false");
+		const tx = setup("CREDIT", new Decimal(0));
+
+		await service.create("p1", paymentDto(3000));
+
+		expect(tx.installmentPlan.updateMany).not.toHaveBeenCalled();
+	});
+});
+
+// ─── INSTALLMENT is system-only (T-070) ─────────────────────────────────
+
+describe("TransactionsService — INSTALLMENT rows are read-only", () => {
+	let service: TransactionsService;
+	let prisma: { transaction: { findFirst: jest.Mock }; $transaction: jest.Mock };
+	let tx: Record<string, Record<string, jest.Mock>>;
+
+	beforeEach(async () => {
+		tx = {
+			account: {
+				findFirst: jest
+					.fn()
+					.mockResolvedValue({ id: "acc-credit", type: "CREDIT", profileId: "p1" }),
+				update: jest.fn().mockResolvedValue({}),
+			},
+			transaction: { delete: jest.fn().mockResolvedValue({}), update: jest.fn() },
+		};
+		prisma = {
+			transaction: { findFirst: jest.fn() },
+			$transaction: jest.fn(async (cb: (t: unknown) => Promise<unknown>) => cb(tx)),
+		};
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [
+				TransactionsService,
+				{ provide: PrismaService, useValue: prisma },
+				{ provide: ConfigService, useValue: { get: jest.fn() } },
+				{ provide: CreditCalculationService, useValue: {} },
+			],
+		}).compile();
+		service = module.get(TransactionsService);
+	});
+
+	function row(type: string) {
+		return {
+			id: "tx-1",
+			accountId: "acc-credit",
+			destinationAccountId: null,
+			categoryId: null,
+			type,
+			amount: new Decimal(1000),
+			description: "Laptop (1/3)",
+			note: null,
+			date: new Date(2026, 9, 15),
+		};
+	}
+
+	it("rejects updating an INSTALLMENT transaction with 400", async () => {
+		prisma.transaction.findFirst.mockResolvedValue(row("INSTALLMENT"));
+
+		await expect(service.update("tx-1", "p1", { amount: 1 })).rejects.toThrow(BadRequestException);
+		expect(tx.account.update).not.toHaveBeenCalled();
+		expect(tx.transaction.update).not.toHaveBeenCalled();
+	});
+
+	it("rejects deleting an INSTALLMENT transaction with 400", async () => {
+		prisma.transaction.findFirst.mockResolvedValue(row("INSTALLMENT"));
+
+		await expect(service.remove("tx-1", "p1")).rejects.toThrow(BadRequestException);
+		expect(tx.transaction.delete).not.toHaveBeenCalled();
+	});
+
+	it("still deletes a regular EXPENSE and reverses its balance", async () => {
+		prisma.transaction.findFirst.mockResolvedValue(row("EXPENSE"));
+
+		await service.remove("tx-1", "p1");
+
+		expect(tx.account.update).toHaveBeenCalledWith({
+			where: { id: "acc-credit" },
+			data: { balance: { increment: -1000 } },
+		});
+		expect(tx.transaction.delete).toHaveBeenCalledWith({ where: { id: "tx-1" } });
+	});
+});
+
+describe("Create/UpdateTransactionDto — INSTALLMENT is not user-creatable", () => {
+	const base = { accountId: "acc-1", amount: 100 };
+
+	it("CreateTransactionDto rejects type INSTALLMENT", async () => {
+		const dto = plainToInstance(CreateTransactionDto, { ...base, type: "INSTALLMENT" });
+		const errors = await validate(dto);
+		expect(errors.map((e) => e.property)).toEqual(["type"]);
+	});
+
+	it("CreateTransactionDto accepts type EXPENSE", async () => {
+		const dto = plainToInstance(CreateTransactionDto, { ...base, type: "EXPENSE" });
+		expect(await validate(dto)).toHaveLength(0);
+	});
+
+	it("UpdateTransactionDto rejects type INSTALLMENT", async () => {
+		const dto = plainToInstance(UpdateTransactionDto, { type: "INSTALLMENT" });
+		const errors = await validate(dto);
+		expect(errors.map((e) => e.property)).toEqual(["type"]);
+	});
+
+	it("QueryTransactionsDto allows filtering by INSTALLMENT", async () => {
+		const dto = plainToInstance(QueryTransactionsDto, { type: "INSTALLMENT" });
+		expect(await validate(dto)).toHaveLength(0);
 	});
 });

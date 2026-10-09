@@ -142,8 +142,10 @@ export class DashboardService {
 			return [];
 		}
 
+		// INSTALLMENT rows are the statement engine billing an existing purchase per
+		// cut; showing them as recent activity would read as new spending.
 		return this.prisma.transaction.findMany({
-			where: { accountId: { in: accountIds } },
+			where: { accountId: { in: accountIds }, type: { not: "INSTALLMENT" } },
 			orderBy: { date: "desc" },
 			take: 5,
 		});

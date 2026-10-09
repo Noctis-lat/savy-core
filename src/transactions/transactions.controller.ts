@@ -38,7 +38,11 @@ export class TransactionsController {
 		required: false,
 		description: "Filter by account (source or destination)",
 	})
-	@ApiQuery({ name: "type", enum: ["INCOME", "EXPENSE", "TRANSFER", "PAYMENT"], required: false })
+	@ApiQuery({
+		name: "type",
+		enum: ["INCOME", "EXPENSE", "TRANSFER", "PAYMENT", "INSTALLMENT"],
+		required: false,
+	})
 	@ApiQuery({ name: "categoryId", required: false, description: "Filter by category" })
 	@ApiQuery({
 		name: "bankId",

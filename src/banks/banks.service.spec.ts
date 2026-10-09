@@ -284,6 +284,20 @@ describe("BanksService.getIncomeVsExpenses", () => {
 		expect(typeof result.periodLabel).toBe("string");
 	});
 
+	it("counts only INCOME and EXPENSE, never INSTALLMENT rows", async () => {
+		prisma.bank.findFirst.mockResolvedValue(makeBank({ accounts: [{ id: "a1" }] }));
+		prisma.transaction.findMany.mockResolvedValue([
+			{ type: "EXPENSE", amount: D(3000) },
+			{ type: "INSTALLMENT", amount: D(1000) },
+		]);
+
+		const result = await service.getIncomeVsExpenses("bank-1", "p1", "month");
+
+		const call = prisma.transaction.findMany.mock.calls[0][0];
+		expect(call.where.type).toEqual({ in: ["INCOME", "EXPENSE"] });
+		expect(result.expenses).toBe(3000);
+	});
+
 	it("returns zeros when bank has no accounts", async () => {
 		prisma.bank.findFirst.mockResolvedValue(makeBank({ accounts: [] }));
 		const result = await service.getIncomeVsExpenses("bank-1", "p1", "month");

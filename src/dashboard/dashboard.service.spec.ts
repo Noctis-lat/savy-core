@@ -173,6 +173,26 @@ describe("DashboardService", () => {
 		expect(summary.netWorth.total).toBe(-208000);
 	});
 
+	it("excludes system INSTALLMENT rows from recentTransactions so they never read as spending", async () => {
+		setupFindMany({
+			account: [mockAccount({ id: "a-credit", type: "CREDIT", balance: asDecimal(3000) })],
+			transaction: [],
+			savingsGoal: [],
+			creditCard: [],
+			loan: [],
+			bank: [],
+		});
+		budgetsService.getProgressForAll.mockResolvedValue([]);
+
+		await service.getSummary(profile);
+
+		const call = prisma.transaction.findMany.mock.calls[0][0];
+		expect(call.where).toEqual({
+			accountId: { in: ["a-credit"] },
+			type: { not: "INSTALLMENT" },
+		});
+	});
+
 	it("returns the full transaction objects for recentTransactions", async () => {
 		const row = {
 			id: "tx-1",

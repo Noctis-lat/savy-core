@@ -89,6 +89,10 @@ describe("BudgetsService.getProgressForAll", () => {
 
 		const result = await service.getProgressForAll("p1");
 		expect(result).toHaveLength(1);
+		// Only EXPENSE counts as spending: INSTALLMENT rows (the same purchase billed
+		// per cut) must never be summed again
+		const aggArgs = prisma.transaction.aggregate.mock.calls[0][0];
+		expect(aggArgs.where.type).toBe("EXPENSE");
 		expect(result[0]).toMatchObject({
 			id: "b-1",
 			categoryName: "Groceries",
