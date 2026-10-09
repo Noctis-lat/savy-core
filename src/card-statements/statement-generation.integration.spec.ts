@@ -31,11 +31,14 @@ interface FakeTransaction {
 	id: string;
 	accountId: string;
 	destinationAccountId: string | null;
-	type: "EXPENSE" | "PAYMENT" | "INCOME" | "TRANSFER";
+	type: "EXPENSE" | "PAYMENT" | "INCOME" | "TRANSFER" | "INSTALLMENT";
 	amount: Decimal;
 	date: Date;
 	statementId: string | null;
 	commissionType: string | null;
+	description?: string | null;
+	installmentPlanId?: string | null;
+	installmentNumber?: number | null;
 }
 
 interface FakeStatement {
@@ -61,7 +64,7 @@ interface FakePlan {
 	currentMonth: number;
 	monthlyAmount: Decimal;
 	interestRate: Decimal | null;
-	status: "ACTIVE" | "COMPLETED" | "CANCELLED";
+	status: "ACTIVE" | "COMPLETED" | "CANCELLED" | "PAID_OFF";
 }
 
 interface DateFilter {
@@ -75,7 +78,7 @@ interface TxWhere {
 	id?: { in: string[] };
 	accountId?: string;
 	destinationAccountId?: string;
-	type?: string;
+	type?: string | { not: string };
 	statementId?: string | null;
 	date?: DateFilter;
 	OR?: TxWhere[];
@@ -102,7 +105,12 @@ class FakeStore {
 	}
 
 	/** Adds a card EXPENSE and moves the debt balance up (positive = debt). */
-	addExpense(amount: number, date: Date, commissionType: string | null = null): FakeTransaction {
+	addExpense(
+		amount: number,
+		date: Date,
+		commissionType: string | null = null,
+		description: string | null = null,
+	): FakeTransaction {
 		const t: FakeTransaction = {
 			id: this.nextId("tx"),
 			accountId: CARD_ACCOUNT_ID,
@@ -112,6 +120,7 @@ class FakeStore {
 			date,
 			statementId: null,
 			commissionType,
+			description,
 		};
 		this.transactions.push(t);
 		this.accountBalance = this.accountBalance.add(amount);
@@ -170,7 +179,8 @@ class FakeStore {
 		) {
 			return false;
 		}
-		if (where.type !== undefined && t.type !== where.type) return false;
+		if (typeof where.type === "string" && t.type !== where.type) return false;
+		if (typeof where.type === "object" && t.type === where.type.not) return false;
 		if (where.statementId !== undefined && t.statementId !== where.statementId) return false;
 		if (!this.matchesDate(t.date, where.date)) return false;
 		if (where.OR && !where.OR.some((clause) => this.matches(t, clause))) return false;
@@ -224,6 +234,9 @@ class FakeStore {
 				create: async ({ data }: { data: Record<string, unknown> }) => {
 					const created = {
 						id: this.nextId("tx"),
+						destinationAccountId: null,
+						statementId: null,
+						commissionType: null,
 						...data,
 					} as Record<string, unknown>;
 					this.transactions.push(created as never);
@@ -315,6 +328,10 @@ async function generateAt(service: StatementGenerationService, now: Date): Promi
 
 function latest(store: FakeStore): FakeStatement {
 	return store.statements[store.statements.length - 1];
+}
+
+function installmentRows(store: FakeStore): FakeTransaction[] {
+	return store.transactions.filter((t) => t.type === "INSTALLMENT");
 }
 
 // ─── T-057 / T-058: statement generation lifecycle ──────────────────────
@@ -581,5 +598,140 @@ describe("Installment plan lifecycle across statements (integration)", () => {
 		expect(s1.balance.toFixed(2)).toBe("1000.00");
 		expect(s1.noInterestPayment.toFixed(2)).toBe("1000.00");
 		expect(store.plans[0].currentMonth).toBe(0);
+	});
+});
+
+// ─── T-066 / T-067: installment transactions per cut ────────────────────
+
+describe("Installment transactions billed at each cut (integration)", () => {
+	it("bills MSI 1/3, 2/3, 3/3 in three consecutive statements without touching the balance", async () => {
+		const store = new FakeStore(new Decimal(0));
+		const purchase = store.addExpense(3000, new Date(2026, 9, 5), null, "Laptop"); // Oct 5
+		const plan = store.addPlan(purchase.id, {
+			type: "MSI",
+			totalMonths: 3,
+			monthlyAmount: new Decimal(1000),
+			interestRate: null,
+		});
+		const { service } = await buildHarness(store);
+
+		await generateAt(service, new Date(2026, 9, 16));
+		const s1 = latest(store);
+		// Installment rows never move the debt: the full purchase already counted
+		expect(store.accountBalance.toFixed(2)).toBe("3000.00");
+		store.addPayment(1000, new Date(2026, 9, 20));
+		s1.paidAmount = new Decimal(1000);
+
+		await generateAt(service, new Date(2026, 10, 16));
+		const s2 = latest(store);
+		expect(store.accountBalance.toFixed(2)).toBe("2000.00");
+		store.addPayment(1000, new Date(2026, 10, 20));
+		s2.paidAmount = new Decimal(1000);
+
+		await generateAt(service, new Date(2026, 11, 16));
+		const s3 = latest(store);
+		store.addPayment(1000, new Date(2026, 11, 20));
+		s3.paidAmount = new Decimal(1000);
+
+		await generateAt(service, new Date(2027, 0, 16));
+		const s4 = latest(store);
+
+		const rows = installmentRows(store);
+		expect(rows.map((r) => [r.statementId, r.installmentNumber, r.description])).toEqual([
+			[s1.id, 1, "Laptop (1/3)"],
+			[s2.id, 2, "Laptop (2/3)"],
+			[s3.id, 3, "Laptop (3/3)"],
+		]);
+		for (const row of rows) {
+			expect(row.installmentPlanId).toBe(plan.id);
+			expect(row.accountId).toBe(CARD_ACCOUNT_ID);
+			expect(row.amount.toString()).toBe("1000");
+		}
+		// Each row is dated on its statement's cut day
+		expect(rows.map((r) => r.date)).toEqual([s1.periodEnd, s2.periodEnd, s3.periodEnd]);
+		// Frozen statements are unchanged by the informational rows
+		expect([s1.balance, s2.balance, s3.balance, s4.balance].map((b) => b.toFixed(2))).toEqual([
+			"3000.00",
+			"2000.00",
+			"1000.00",
+			"0.00",
+		]);
+		expect(s4.noInterestPayment.toFixed(2)).toBe("0.00");
+		expect(store.accountBalance.toFixed(2)).toBe("0.00");
+		expect(plan.status).toBe("COMPLETED");
+		// No 4th installment once the plan is completed
+		expect(rows.some((r) => r.statementId === s4.id)).toBe(false);
+	});
+
+	it("uses a fallback description when the purchase has none", async () => {
+		const store = new FakeStore(new Decimal(0));
+		const purchase = store.addExpense(1200, new Date(2026, 9, 5));
+		store.addPlan(purchase.id, {
+			type: "MSI",
+			totalMonths: 6,
+			monthlyAmount: new Decimal(200),
+			interestRate: null,
+		});
+		const { service } = await buildHarness(store);
+
+		await generateAt(service, new Date(2026, 9, 16));
+
+		const [row] = installmentRows(store);
+		expect(row.description).toBe("Installment purchase (1/6)");
+		expect(row.amount.toString()).toBe("200");
+	});
+
+	it("does not bill a plan purchased after the statement period", async () => {
+		const store = new FakeStore(new Decimal(0));
+		const late = store.addExpense(2400, new Date(2026, 9, 20)); // Oct 20: next period
+		store.addPlan(late.id, {
+			type: "MSI",
+			totalMonths: 12,
+			monthlyAmount: new Decimal(200),
+			interestRate: null,
+		});
+		store.addExpense(100, new Date(2026, 8, 20)); // ordinary charge in period 1
+		const { service } = await buildHarness(store);
+
+		await generateAt(service, new Date(2026, 9, 16));
+
+		expect(store.statements).toHaveLength(1);
+		expect(installmentRows(store)).toHaveLength(0);
+	});
+
+	it("adds the MSCI interest component to the debt at each cut and keeps PNGI at the mensualidad", async () => {
+		const store = new FakeStore(new Decimal(0));
+		const purchase = store.addExpense(6000, new Date(2026, 9, 5), null, "Phone");
+		store.addPlan(purchase.id, {
+			type: "MSCI",
+			totalMonths: 12,
+			monthlyAmount: new Decimal(560), // 500 principal + 60 interest
+			interestRate: new Decimal("0.12"),
+		});
+		const { service } = await buildHarness(store);
+
+		await generateAt(service, new Date(2026, 9, 16));
+		const s1 = latest(store);
+		// Interest component is new debt charged at the cut
+		expect(store.accountBalance.toFixed(2)).toBe("6060.00");
+		// Frozen balance excludes cut-time charges (same as INTEREST_CHARGE)
+		expect(s1.balance.toFixed(2)).toBe("6000.00");
+		expect(s1.noInterestPayment.toFixed(2)).toBe("560.00");
+		const [row1] = installmentRows(store);
+		expect(row1.amount.toString()).toBe("560");
+		expect(row1.description).toBe("Phone (1/12)");
+
+		store.addPayment(560, new Date(2026, 9, 20));
+		s1.paidAmount = new Decimal(560);
+
+		await generateAt(service, new Date(2026, 10, 16));
+		const s2 = latest(store);
+		// 6060 - 560 paid: the carried interest is now part of the opening balance
+		expect(s2.balance.toFixed(2)).toBe("5500.00");
+		// PNGI = 5500 - 5500 remaining principal + 560 → no double counted interest
+		expect(s2.noInterestPayment.toFixed(2)).toBe("560.00");
+		expect(s2.interestAmount.toFixed(2)).toBe("0.00");
+		expect(store.accountBalance.toFixed(2)).toBe("5560.00");
+		expect(installmentRows(store).map((r) => r.installmentNumber)).toEqual([1, 2]);
 	});
 });

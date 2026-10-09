@@ -360,4 +360,128 @@ describe("StatementGenerationService", () => {
 			expect(calcService.calculateAverageDailyBalance).toHaveBeenCalled();
 		});
 	});
+
+	describe("installment transactions at the cut", () => {
+		const card = {
+			id: "card-1",
+			accountId: "acc-1",
+			cutDay: 15,
+			interestRate: new Decimal(0.36),
+			creditLimit: new Decimal(20000),
+			paymentDueDays: 20,
+		};
+
+		function planFixture(overrides: Record<string, unknown>) {
+			return {
+				id: "plan-1",
+				transactionId: "tx-purchase",
+				type: "MSI",
+				totalMonths: 3,
+				currentMonth: 1,
+				monthlyAmount: new Decimal(1000),
+				interestRate: null,
+				status: "ACTIVE",
+				transaction: {
+					id: "tx-purchase",
+					amount: new Decimal(3000),
+					description: "Laptop",
+					date: new Date(2026, 8, 20),
+				},
+				...overrides,
+			};
+		}
+
+		async function runWithPlans(plans: unknown[]) {
+			configService.get.mockImplementation((key: string) =>
+				key === "CREDIT_CARD_REACTIVE_ENABLED" ? "true" : undefined,
+			);
+			prisma.creditCard.findMany.mockResolvedValue([card]);
+			const tx = createMockTx();
+			tx.cardStatement = {
+				findFirst: jest.fn().mockResolvedValue(null),
+				findUnique: jest.fn().mockResolvedValue(null),
+				create: jest.fn().mockResolvedValue({ id: "stmt-1" }),
+			};
+			tx.transaction = {
+				findMany: jest.fn().mockResolvedValue([]),
+				updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+				create: jest.fn().mockResolvedValue({ id: "tx-installment" }),
+			};
+			tx.installmentPlan = {
+				findMany: jest.fn().mockResolvedValue(plans),
+				update: jest.fn().mockResolvedValue({}),
+			};
+			tx.account = {
+				findFirst: jest.fn().mockResolvedValue({ id: "acc-1", balance: new Decimal(3000) }),
+				update: jest.fn().mockResolvedValue({}),
+			};
+			prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
+				cb(tx),
+			);
+			const realDateNow = Date.now;
+			Date.now = jest.fn(() => new Date(2026, 9, 16).getTime());
+			try {
+				await service.generatePending("profile-1");
+			} finally {
+				Date.now = realDateNow;
+			}
+			return tx;
+		}
+
+		it("creates one INSTALLMENT transaction per active plan, linked to the new statement", async () => {
+			const tx = await runWithPlans([planFixture({})]);
+
+			expect(tx.transaction.create).toHaveBeenCalledTimes(1);
+			const { data } = tx.transaction.create.mock.calls[0][0];
+			const periodEnd = tx.cardStatement.create.mock.calls[0][0].data.periodEnd;
+			expect(data).toEqual({
+				accountId: "acc-1",
+				type: "INSTALLMENT",
+				amount: new Decimal(1000),
+				description: "Laptop (2/3)",
+				date: periodEnd,
+				statementId: "stmt-1",
+				categoryId: null,
+				installmentPlanId: "plan-1",
+				installmentNumber: 2,
+			});
+			// MSI installments are informational: no balance movement
+			expect(tx.account.update).not.toHaveBeenCalled();
+		});
+
+		it("increments the balance by the MSCI interest component only", async () => {
+			const tx = await runWithPlans([
+				planFixture({
+					type: "MSCI",
+					totalMonths: 12,
+					currentMonth: 0,
+					monthlyAmount: new Decimal(560),
+					interestRate: new Decimal(0.12),
+					transaction: {
+						id: "tx-purchase",
+						amount: new Decimal(6000),
+						description: null,
+						date: new Date(2026, 8, 20),
+					},
+				}),
+			]);
+
+			const { data } = tx.transaction.create.mock.calls[0][0];
+			expect(data.description).toBe("Installment purchase (1/12)");
+			expect(tx.account.update).toHaveBeenCalledWith({
+				where: { id: "acc-1" },
+				data: { balance: { increment: 60 } },
+			});
+		});
+
+		it("excludes INSTALLMENT rows from every period query", async () => {
+			const tx = await runWithPlans([]);
+
+			expect(tx.transaction.findMany).toHaveBeenCalledTimes(2);
+			for (const [args] of tx.transaction.findMany.mock.calls) {
+				expect(args.where.type).toEqual({ not: "INSTALLMENT" });
+			}
+			expect(tx.transaction.create).not.toHaveBeenCalled();
+		});
+	});
 });
