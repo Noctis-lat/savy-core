@@ -87,14 +87,34 @@ export class IncomeSourcesController {
 		return this.incomeSourcesService.update(id, profile.id, dto);
 	}
 
+	@Patch(":id/deactivate")
+	@ApiOperation({ summary: "Deactivate an income source (reversible)" })
+	@ApiSuccessResponse(200, IncomeSourceResponseDto, "Returns the deactivated income source")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Income source not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async deactivate(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.incomeSourcesService.deactivate(id, profile.id);
+	}
+
+	@Patch(":id/activate")
+	@ApiOperation({ summary: "Activate a previously deactivated income source" })
+	@ApiSuccessResponse(200, IncomeSourceResponseDto, "Returns the activated income source")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Income source not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async activate(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.incomeSourcesService.activate(id, profile.id);
+	}
+
 	@Delete(":id")
-	@ApiOperation({ summary: "Soft-delete an income source (deactivate)" })
-	@ApiMessageResponse(200, "Income source deactivated")
+	@ApiOperation({ summary: "Permanently delete an income source" })
+	@ApiMessageResponse(200, "Income source deleted")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Income source not found")
 	@ApiErrorResponse(500, "Internal server error")
 	async remove(@Param("id") id: string, @CurrentUser() profile: Profile) {
 		await this.incomeSourcesService.remove(id, profile.id);
-		return { message: "Income source deactivated" };
+		return { message: "Income source deleted" };
 	}
 }

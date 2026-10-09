@@ -96,12 +96,18 @@ export class IncomeSourcesService {
 		});
 	}
 
+	/** Permanently deletes the income source. Use `deactivate` for a reversible state change. */
 	async remove(id: string, profileId: string): Promise<void> {
 		await this.findOne(id, profileId);
-		await this.prisma.incomeSource.update({
-			where: { id },
-			data: { isActive: false },
-		});
+		await this.prisma.incomeSource.delete({ where: { id } });
+	}
+
+	async deactivate(id: string, profileId: string): Promise<IncomeSource> {
+		return this.setActive(id, profileId, false);
+	}
+
+	async activate(id: string, profileId: string): Promise<IncomeSource> {
+		return this.setActive(id, profileId, true);
 	}
 
 	async bulkCreate(
@@ -172,6 +178,14 @@ export class IncomeSourcesService {
 			successful.length === total ? "success" : successful.length === 0 ? "failed" : "partial";
 
 		return { creationState, total, successful, failed };
+	}
+
+	private async setActive(id: string, profileId: string, isActive: boolean): Promise<IncomeSource> {
+		await this.findOne(id, profileId);
+		return this.prisma.incomeSource.update({
+			where: { id },
+			data: { isActive },
+		});
 	}
 
 	private validatePaydays(frequency: IncomeFrequency, paydays: number[]): string[] {
