@@ -11,9 +11,9 @@ This is the **authoritative reference** for any agent or human working on this p
 Savy is a personal finance PWA. This repo is the **REST API** that handles all business logic, data persistence, and authentication. The frontend (`savy-web`, separate repo) communicates exclusively with this API — it never touches Supabase directly.
 
 ### Live deployment
-- **API**: https://savy-core.onrender.com
-- **Swagger**: https://savy-core.onrender.com/api/docs
-- **Platform**: Render (free tier, cold starts possible)
+- **API**: TBD (own server)
+- **Swagger**: `<api-host>/api/docs`
+- **Platform**: own always-on server (no longer Render). Being always-on is what makes the daily `@nestjs/schedule` cron jobs reliable.
 
 ### Project Planning
 
@@ -74,18 +74,24 @@ src/{domain}/
 | AuthModule | `src/auth/` | ✓ Complete | Supabase admin client + JWT strategy + guards |
 | ProfilesModule | `src/profiles/` | ✓ Complete | Profile CRUD + computed fields (fullName, initials) |
 | AccountsModule | `src/accounts/` | ✓ Complete | Account CRUD with soft delete |
+| BanksModule | `src/banks/` | ✓ Complete | Bank CRUD with soft delete |
+| CategoriesModule | `src/categories/` | ✓ Complete | User-defined INCOME/EXPENSE categories |
+| TransactionsModule | `src/transactions/` | ✓ Complete | Income/expense/transfer/payment movements |
+| BudgetsModule | `src/budgets/` | ✓ Complete | Informational, category-based budgets: `RECURRING` (period) or `ONE_TIME` (date range), multiple `BudgetItem`s (INCOME and EXPENSE categories, no accounts), per-period progress and lazy `BudgetPeriodSnapshot` history |
+| SavingsGoalsModule | `src/savings-goals/` | ✓ Complete | Savings targets with progress from account balance |
+| CreditCardsModule | `src/credit-cards/` | ✓ Complete | Credit card logic: cut day, payment day, interest calc |
+| CardStatementsModule | `src/card-statements/` | ✓ Complete | Statement generation: min payment, no-interest payment, interest amount |
+| LoansModule | `src/loans/` | ✓ Complete | Loan tracking |
+| IncomeSourcesModule | `src/income-sources/` | ✓ Complete | Income source CRUD + bulk create, optional INCOME `categoryId` |
+| IncomeGenerationModule | `src/income-generation/` | ✓ Complete | Daily cron (`@nestjs/schedule`, 3 AM server time) that generates INCOME transactions from active income sources |
+| RecurringExpensesModule | `src/recurring-expenses/` | ✓ Complete | Recurring expense CRUD (reactive generation pending) |
+| DashboardModule | `src/dashboard/` | ✓ Complete | Aggregated summary (net worth, active budgets, goals, credit, ...) |
 
-### Modules to build (planned)
+### Scheduled jobs
 
-| Module | Description |
-|---|---|
-| TransactionsModule | Income/expense/transfer/payment movements |
-| CategoriesModule | User-defined income/expense categories |
-| BudgetsModule | Periodic budget tracking per category |
-| SavingsGoalsModule | Savings targets with progress tracking |
-| CreditCardsModule | Credit card logic: cut day, payment day, interest calc |
-| CardStatementsModule | Statement generation: min payment, no-interest payment, interest amount |
-| LoansModule | Loan tracking: principal, interest, monthly payment, remaining balance |
+`ScheduleModule.forRoot()` (`@nestjs/schedule` **v6**, the Nest 11 line — v12+ targets Nest 12 and is ESM-only, which breaks this CommonJS build and Jest) is registered in `AppModule`.
+
+- `IncomeGenerationService` (`@Cron(EVERY_DAY_AT_3AM)`): for each active `IncomeSource`, computes paydays in the profile's IANA `timezone` from the local date of `createdAt` (inclusive) or the day after `lastGeneratedAt`, up to and including today. Each payday creates an INCOME transaction (`incomeSourceId` set, dated at local noon, category from the source) and increments the destination account balance in one `$transaction` together with the cursor update. The `lastGeneratedAt` cursor only moves forward, so incomes deleted by the user are not recreated. Per-source failures are logged and do not stop the job.
 
 ### Shared infrastructure
 
@@ -201,7 +207,7 @@ Prisma 7 has breaking changes from Prisma 6:
 2. **Client generated in `src/generated/prisma/`** (inside src, so `nest build` compiles it)
 3. **Uses `@prisma/adapter-pg`** driver adapter (not the default Prisma engine)
 4. **`prisma.config.ts`** handles env loading and migration adapter setup
-5. **`postinstall` script** runs `prisma generate` automatically (needed for Render)
+5. **`postinstall` script** runs `prisma generate` automatically (needed for server builds)
 
 ### Two connection strings
 
@@ -280,12 +286,13 @@ The project uses `"module": "commonjs"` in `tsconfig.json`. Prisma 7 generates c
 
 With `"module": "commonjs"`, `nest build` puts output directly in `dist/` (not `dist/src/`). The `start:prod` script is `node dist/main.js`.
 
-### 3. Render deployment
+### 3. Deployment (own server)
 
 - **Build Command**: `bun install && bun run build` (postinstall runs `prisma generate` automatically)
-- **Start Command**: `bun run start:prod` (NOT `bun run start` — that uses `nest start` which compiles in memory and OOMs on free tier)
+- **Start Command**: `bun run start:prod` (NOT `bun run start` — that uses `nest start`, which compiles in memory and is meant for development)
 - The Prisma client (`src/generated/prisma/`) is gitignored and must be generated during build
-- All env vars must be set in Render dashboard: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, `DATABASE_URL`, `DIRECT_URL`, `CORS_ORIGIN`
+- The process must stay running for the daily cron jobs to fire
+- All env vars must be set on the server: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, `DATABASE_URL`, `DIRECT_URL`, `CORS_ORIGIN`
 
 ### 4. Supabase JWT validation
 

@@ -23,7 +23,7 @@ Profile (root)
 │       └── RecurringExpense[] ← periodic expenses charged to this account
 ├── Account[]                  ← direct relation (for bankless accounts: CASH)
 ├── Category[]                 ← classify transactions and budgets (INCOME | EXPENSE)
-├── Budget[]                   ← spending limits per category and period
+├── Budget[]                   ← informational plans over categories (items), recurring or one-time
 ├── SavingsGoal[]              ← savings targets linked to an account
 ├── IncomeSource[]             ← recurring income definitions
 └── RecurringExpense[]         ← recurring expense definitions (subscriptions, services, etc.)
@@ -47,15 +47,17 @@ A money movement. Types: `INCOME`, `EXPENSE`, `TRANSFER`, `PAYMENT`. Points to a
 User-defined label for classifying transactions. Type: `INCOME` or `EXPENSE`. Unique per profile+name+type. Has color and icon. Used by Transaction and Budget.
 
 **Budget**
-Periodic spending limit assigned to a category. Periods: `WEEKLY`, `BIWEEKLY`, `MONTHLY`, `YEARLY`. Defines an amount cap, start date, and optional end date. Soft delete with `isActive`.
+Informational, category-based plan (it never blocks transactions and is not tied to accounts). Has a `name` and a `kind`:
+- `RECURRING` — repeats every `period` (`WEEKLY`, `BIWEEKLY`, `MONTHLY`, `YEARLY`) from `startDate`, with optional `endDate`.
+- `ONE_TIME` — a single range from `startDate` to a required `endDate`; `period` is null.
 
-> **Pending design**: Budget may reference multiple accounts to distribute tracking across them. Details TBD.
+A budget holds multiple **BudgetItem**s (`categoryId`, `amount`, unique per budget+category). Items can use `INCOME` or `EXPENSE` categories. Progress is computed per item for the current period from the transactions of that category (INCOME items sum incomes; EXPENSE items sum expenses, counting MSI/MSCI purchases by their billed installments), and rolled up into `totalPlanned` / `totalSpent` / `totalRemaining` / `totalPercentage`. When a recurring period ends, a **BudgetPeriodSnapshot** (with **BudgetItemSnapshot**s) is created lazily on read to freeze the history. Soft delete with `isActive`.
 
 **SavingsGoal**
 Savings target linked to a specific account. Stores target amount (`targetAmount`), optional deadline, and color. Progress is derived from the account balance — not stored separately. When a transaction affects the linked account, the goal progress updates automatically.
 
 **IncomeSource**
-Recurring income definition. Stores amount, frequency (`WEEKLY`, `BIWEEKLY`, `MONTHLY`), paydays (`Int[]`), and destination account. The system generates `INCOME` transactions to the destination account when paydays are reached.
+Recurring income definition. Stores amount, frequency (`WEEKLY`, `BIWEEKLY`, `MONTHLY`), paydays (`Int[]`), destination account, optional `INCOME` category, and a `lastGeneratedAt` cursor. The system generates `INCOME` transactions (linked via `Transaction.incomeSourceId`) to the destination account when paydays are reached.
 
 **RecurringExpense**
 Recurring expense definition — the expense mirror of `IncomeSource`. Covers subscriptions (Netflix, Spotify), services (electricity, internet, rent), and any periodic expense. Distinguished by `type` enum: `SUBSCRIPTION`, `SERVICE`, `UNCLASSIFIED`. Stores amount, frequency (`WEEKLY`, `BIWEEKLY`, `MONTHLY`, `YEARLY`), billing days (`Int[]`), payment account (`accountId`), optional category, optional URL (for subscription management), color, and icon. Soft delete with `isActive`. Two delete modes: soft (cancel, keeps history) and permanent (hard delete). The system will generate `EXPENSE` transactions on the payment account when billing days are reached (reactive behavior pending implementation).
@@ -123,11 +125,11 @@ The goal's progress is always in sync with its account balance. No separate "sav
 
 ### IncomeSource
 
-- **Payday reached** → system generates a `Transaction INCOME` to the `destinationAccountId` → account balance increases.
+- **Payday reached** → system generates a `Transaction INCOME` to the `destinationAccountId` → account balance increases. **Implemented** as a daily cron (`IncomeGenerationModule`, 3 AM): paydays are evaluated in the profile's timezone (WEEKLY = weekday 1-7 with 1 = Monday; BIWEEKLY/MONTHLY = day of month, clamped to the month's last day), never before the source's `createdAt`. The transaction uses the source's name as description and its category. The `lastGeneratedAt` cursor only moves forward, so deleting a generated income does not recreate it.
 
 ### RecurringExpense
 
-- **Billing day reached** → system generates a `Transaction EXPENSE` on the `accountId` → account balance decreases. *(PENDING implementation — follows the same lazy strategy as IncomeSource)*
+- **Billing day reached** → system generates a `Transaction EXPENSE` on the `accountId` → account balance decreases. *(PENDING implementation — will follow the same daily-cron strategy as IncomeSource)*
 
 ---
 
@@ -135,17 +137,9 @@ The goal's progress is always in sync with its account balance. No separate "sav
 
 ### Periodic transactions strategy
 
-**Current implementation: Lazy (on-demand) — Option B**
+**Hybrid: scheduled jobs + lazy catch-up**
 
-When the user opens the app, the API calculates which periodic transactions (income sources, loan interest, credit card statements) should have been generated since the last check, and creates them at that moment.
-
-**Why**: The server runs on Render free tier, which sleeps on inactivity. A cron job on a sleeping server is unreliable and would silently miss scheduled events.
-
-**Future implementation: Scheduled jobs — Option A**
-
-Use `@nestjs/schedule` with cron jobs to generate periodic transactions at fixed times (e.g., daily at midnight). This requires a server that's always running (paid tier or separate worker).
-
-**Migration path**: The lazy strategy and the cron strategy use the same service methods to generate transactions — only the trigger mechanism changes. When the infrastructure supports it, add a `SchedulerModule` that calls the same services on a schedule. No data model changes required.
+The API now runs on its own always-on server, so `@nestjs/schedule` cron jobs are reliable. Income sources are generated by a daily cron (`IncomeGenerationModule`). Credit card statements and budget snapshots still use the lazy (on-read) strategy; they can move to cron jobs later using the same service methods — only the trigger changes, no data model changes required.
 
 ---
 
@@ -165,9 +159,10 @@ Use `@nestjs/schedule` with cron jobs to generate periodic transactions at fixed
 | CreditCardsModule | Credit card CRUD |
 | CardStatementsModule | Statement generation |
 | LoansModule | Loan CRUD |
-| BudgetsModule | Budget CRUD with soft delete |
+| BudgetsModule | Multi-category budgets (recurring / one-time) with per-period progress and snapshots |
 | SavingsGoalsModule | Savings goal CRUD |
 | IncomeSourcesModule | Income source CRUD + bulk create |
+| IncomeGenerationModule | Daily cron generating INCOME transactions from income sources |
 | RecurringExpensesModule | Recurring expense CRUD (subscriptions, services) with soft + hard delete |
 | DashboardModule | Analytics summary |
 
@@ -175,8 +170,8 @@ Use `@nestjs/schedule` with cron jobs to generate periodic transactions at fixed
 
 | Priority | Feature | Dependencies | Status |
 |---|---|---|---|
-| 1 | RecurringExpense reactive behavior — lazy EXPENSE transaction generation on billing day | RecurringExpensesModule, TransactionsModule | **Pending** |
-| 2 | IncomeSource reactive behavior — lazy INCOME transaction generation on payday | IncomeSourcesModule, TransactionsModule | **Pending** |
+| 1 | RecurringExpense reactive behavior — EXPENSE transaction generation on billing day | RecurringExpensesModule, TransactionsModule | **Pending** |
+| 2 | IncomeSource reactive behavior — INCOME transaction generation on payday | IncomeSourcesModule, TransactionsModule | **Implemented** (daily cron) |
 | 3 | Loan reactive behavior — interest charge + payment processing | LoansModule, TransactionsModule | Pending |
 | 4 | CreditCard reactive behavior — statement generation on cut date | CreditCardsModule, CardStatementsModule | **Implemented behind `CREDIT_CARD_REACTIVE_ENABLED` (default off)** — pending manual E2E and balance-sign decision (see below) |
 | 5 | SavingsGoal reactive behavior — auto progress from account balance | SavingsGoalsModule | Pending |
