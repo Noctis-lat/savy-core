@@ -42,12 +42,14 @@ export class IncomeSourcesService {
 		return this.prisma.incomeSource.findMany({
 			where: { profileId, isActive },
 			orderBy: { [sortBy]: order },
+			include: { category: { select: { id: true, name: true, type: true } } },
 		});
 	}
 
 	async findOne(id: string, profileId: string): Promise<IncomeSource> {
 		const source = await this.prisma.incomeSource.findFirst({
 			where: { id, profileId },
+			include: { category: { select: { id: true, name: true, type: true } } },
 		});
 		if (!source) {
 			throw new NotFoundException("Income source not found");
@@ -63,6 +65,10 @@ export class IncomeSourcesService {
 
 		await this.validateDestinationAccount(dto.destinationAccountId, profileId);
 
+		if (dto.categoryId) {
+			await this.validateCategory(dto.categoryId, profileId);
+		}
+
 		return this.prisma.incomeSource.create({
 			data: {
 				profileId,
@@ -71,6 +77,7 @@ export class IncomeSourcesService {
 				frequency: dto.frequency,
 				paydays: dto.paydays,
 				destinationAccountId: dto.destinationAccountId,
+				categoryId: dto.categoryId ?? null,
 			},
 		});
 	}
@@ -88,6 +95,10 @@ export class IncomeSourcesService {
 
 		if (dto.destinationAccountId) {
 			await this.validateDestinationAccount(dto.destinationAccountId, profileId);
+		}
+
+		if (dto.categoryId) {
+			await this.validateCategory(dto.categoryId, profileId);
 		}
 
 		return this.prisma.incomeSource.update({
@@ -154,6 +165,18 @@ export class IncomeSourcesService {
 					continue;
 				}
 
+				if (instance.categoryId) {
+					try {
+						await this.validateCategory(instance.categoryId, profileId);
+					} catch (error) {
+						failed.push({
+							input: raw,
+							errors: [(error as Error).message],
+						});
+						continue;
+					}
+				}
+
 				const created = await this.prisma.incomeSource.create({
 					data: {
 						profileId,
@@ -162,6 +185,7 @@ export class IncomeSourcesService {
 						frequency: instance.frequency,
 						paydays: instance.paydays,
 						destinationAccountId: instance.destinationAccountId,
+						categoryId: instance.categoryId ?? null,
 					},
 				});
 				successful.push(created);
@@ -228,5 +252,19 @@ export class IncomeSourcesService {
 			return [`Destination account must be DEBIT or CASH, got ${account.type}`];
 		}
 		return [];
+	}
+
+	/** Validates that a category exists, belongs to the user, and has type INCOME. */
+	private async validateCategory(categoryId: string, profileId: string): Promise<void> {
+		const category = await this.prisma.category.findFirst({
+			where: { id: categoryId, profileId },
+			select: { id: true, type: true },
+		});
+		if (!category) {
+			throw new NotFoundException("Category not found");
+		}
+		if (category.type !== "INCOME") {
+			throw new BadRequestException("Income source category must be of type INCOME");
+		}
 	}
 }

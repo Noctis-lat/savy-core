@@ -11,6 +11,7 @@ import {
 	IsNumber,
 	IsOptional,
 	IsString,
+	IsUUID,
 	MaxLength,
 	Min,
 } from "class-validator";
@@ -71,6 +72,14 @@ export class CreateIncomeSourceDto {
 	@IsString()
 	@IsNotEmpty()
 	destinationAccountId!: string;
+
+	@ApiPropertyOptional({
+		example: "category-uuid",
+		description: "Optional INCOME category ID to tag generated transactions (must be type INCOME)",
+	})
+	@IsOptional()
+	@IsUUID()
+	categoryId?: string;
 }
 
 export class UpdateIncomeSourceDto {
@@ -117,6 +126,14 @@ export class UpdateIncomeSourceDto {
 	@IsString()
 	@IsNotEmpty()
 	destinationAccountId?: string;
+
+	@ApiPropertyOptional({
+		example: "category-uuid",
+		description: "Optional INCOME category ID to tag generated transactions (must be type INCOME)",
+	})
+	@IsOptional()
+	@IsUUID()
+	categoryId?: string;
 }
 
 export class IncomeSourceResponseDto {
@@ -147,6 +164,18 @@ export class IncomeSourceResponseDto {
 		description: "Destination account ID where income balance lands",
 	})
 	destinationAccountId!: string;
+
+	@ApiPropertyOptional({
+		example: "category-uuid",
+		description: "Optional INCOME category ID linked to this income source",
+	})
+	categoryId?: string | null;
+
+	@ApiPropertyOptional({
+		example: { id: "category-uuid", name: "Salary", type: "INCOME" },
+		description: "Linked category (id, name, type)",
+	})
+	category?: { id: string; name: string; type: string };
 
 	@ApiProperty({ example: true, description: "Whether the income source is active" })
 	isActive!: boolean;
