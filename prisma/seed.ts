@@ -71,10 +71,12 @@ async function main() {
 	// ─── Cleanup: delete banks (cascade → accounts → creditCards/loans/transactions) ───
 	console.log("Cleaning existing data for profile...");
 	await prisma.savingsGoal.deleteMany({ where: { profileId: PROFILE_ID } });
+	// Budget items and period snapshots cascade from budgets.
 	await prisma.budget.deleteMany({ where: { profileId: PROFILE_ID } });
+	await prisma.incomeSource.deleteMany({ where: { profileId: PROFILE_ID } });
 	await prisma.bank.deleteMany({ where: { profileId: PROFILE_ID } });
 	await prisma.category.deleteMany({ where: { profileId: PROFILE_ID } });
-	console.log("Cleaned savings goals, budgets, banks, and categories.");
+	console.log("Cleaned savings goals, budgets, income sources, banks, and categories.");
 
 	// ─── 1. Categories ────────────────────────────────────────────────────
 	const { income, expense } = await createCategories();
@@ -169,7 +171,7 @@ async function main() {
 	});
 
 	// Bank 2 — Santander
-	const acc6 = await prisma.account.create({
+	await prisma.account.create({
 		data: {
 			profileId: PROFILE_ID,
 			bankId: santander.id,
@@ -193,7 +195,7 @@ async function main() {
 	});
 
 	// Bank 3 — Nu
-	const acc8 = await prisma.account.create({
+	await prisma.account.create({
 		data: {
 			profileId: PROFILE_ID,
 			bankId: nu.id,
@@ -482,28 +484,67 @@ async function main() {
 	console.log(`Created ${txns.length} transactions.`);
 
 	// ─── 7. Budgets ───────────────────────────────────────────────────────
-	const monthStart = dateInMonth(currentYear, currentMonth, 1);
-	const budgetDefs = [
-		{ name: "Comida", amount: 12000.0 },
-		{ name: "Transporte", amount: 4000.0 },
-		{ name: "Servicios", amount: 5000.0 },
-		{ name: "Entretenimiento", amount: 3000.0 },
-		{ name: "Renta", amount: 12000.0 },
-		{ name: "Ropa", amount: 2500.0 },
+	// RECURRING monthly budget covering the main expense categories plus expected income.
+	const monthStart = new Date(Date.UTC(currentYear, currentMonth, 1));
+	const baseItems = [
+		{ categoryId: expense.Comida, amount: 12000.0 },
+		{ categoryId: expense.Transporte, amount: 4000.0 },
+		{ categoryId: expense.Servicios, amount: 5000.0 },
+		{ categoryId: expense.Entretenimiento, amount: 3000.0 },
+		{ categoryId: expense.Renta, amount: 12000.0 },
+		{ categoryId: expense.Ropa, amount: 2500.0 },
+		{ categoryId: income.Salario, amount: 35000.0 },
 	];
-	for (const b of budgetDefs) {
-		await prisma.budget.create({
-			data: {
-				profileId: PROFILE_ID,
-				categoryId: expense[b.name],
-				amount: b.amount,
-				period: "MONTHLY",
-				startDate: monthStart,
-				isActive: true,
+	await prisma.budget.create({
+		data: {
+			profileId: PROFILE_ID,
+			name: "Base",
+			kind: "RECURRING",
+			period: "MONTHLY",
+			startDate: monthStart,
+			isActive: true,
+			items: { create: baseItems },
+		},
+	});
+
+	// ONE_TIME budget for a two-week date range inside the current month.
+	await prisma.budget.create({
+		data: {
+			profileId: PROFILE_ID,
+			name: "Vacaciones",
+			kind: "ONE_TIME",
+			period: null,
+			startDate: new Date(Date.UTC(currentYear, currentMonth, 10)),
+			endDate: new Date(Date.UTC(currentYear, currentMonth, 24)),
+			isActive: true,
+			items: {
+				create: [
+					{ categoryId: expense.Entretenimiento, amount: 6000.0 },
+					{ categoryId: expense.Comida, amount: 4000.0 },
+				],
 			},
-		});
-	}
-	console.log(`Created ${budgetDefs.length} budgets.`);
+		},
+	});
+	const budgetCount = 2;
+	console.log(`Created ${budgetCount} budgets (${baseItems.length + 2} items).`);
+
+	// ─── 7b. Income sources ──────────────────────────────────────────────
+	// lastGeneratedAt = now so the daily income generation job does not backfill
+	// paydays already covered by the seeded salary transactions.
+	await prisma.incomeSource.create({
+		data: {
+			profileId: PROFILE_ID,
+			name: "Salario",
+			amount: 35000.0,
+			frequency: "MONTHLY",
+			paydays: [1],
+			destinationAccountId: acc1.id,
+			categoryId: income["Salario"],
+			lastGeneratedAt: now,
+			isActive: true,
+		},
+	});
+	console.log("Created 1 income source.");
 
 	// ─── 8. SavingsGoals ─────────────────────────────────────────────────
 	function monthsFromNow(months: number): Date {
@@ -565,7 +606,8 @@ async function main() {
 		`Categories: ${incomeCategories.length + expenseCategories.length} (income=${incomeCategories.length}, expense=${expenseCategories.length})`,
 	);
 	console.log(`Transactions: ${txns.length}`);
-	console.log(`Budgets: ${budgetDefs.length}`);
+	console.log(`Budgets: ${budgetCount}`);
+	console.log("Income sources: 1");
 	console.log(`Savings goals: ${goalDefs.length}`);
 	console.log(`\nMain test bank (BBVA) ID: ${bbva.id}`);
 }
