@@ -83,15 +83,35 @@ describe("DashboardService", () => {
 			loan: [],
 			bank: [],
 		});
+		const makeProgress = (id: string, totalPercentage: number) => ({
+			id,
+			name: `Budget ${id}`,
+			kind: "RECURRING",
+			period: "MONTHLY",
+			periodStart: new Date("2026-10-01T00:00:00Z"),
+			periodEnd: new Date("2026-11-01T00:00:00Z"),
+			totalPlanned: 5000,
+			totalSpent: (5000 * totalPercentage) / 100,
+			totalRemaining: 5000 - (5000 * totalPercentage) / 100,
+			totalPercentage,
+			items: [
+				{
+					categoryId: "cat-1",
+					categoryName: "Groceries",
+					categoryType: "EXPENSE",
+					plannedAmount: 5000,
+					spentAmount: (5000 * totalPercentage) / 100,
+					remaining: 5000 - (5000 * totalPercentage) / 100,
+					percentage: totalPercentage,
+				},
+			],
+		});
 		budgetsService.getProgressForAll.mockResolvedValue([
-			{
-				id: "b-1",
-				categoryName: "Groceries",
-				spent: 3200,
-				budget: 5000,
-				remaining: 1800,
-				percentage: 64,
-			},
+			makeProgress("b-1", 64),
+			makeProgress("b-2", 10),
+			makeProgress("b-3", 120),
+			makeProgress("b-4", 30),
+			makeProgress("b-5", 90),
 		]);
 
 		const summary = await service.getSummary(profile);
@@ -111,9 +131,19 @@ describe("DashboardService", () => {
 		expect(debit?.percentage).toBe(50); // 10000 / (10000+2000+3000+5000) * 100 = 50
 
 		// activeBudgets sorted by percentage desc, top 4
-		expect(summary.activeBudgets).toHaveLength(1);
-		expect(summary.activeBudgets[0].categoryName).toBe("Groceries");
-		expect(summary.activeBudgets[0].remaining).toBe(1800);
+		expect(summary.activeBudgets.map((b) => b.id)).toEqual(["b-3", "b-5", "b-1", "b-4"]);
+		expect(summary.activeBudgets[2]).toEqual({
+			id: "b-1",
+			name: "Budget b-1",
+			kind: "RECURRING",
+			period: "MONTHLY",
+			periodStart: "2026-10-01T00:00:00.000Z",
+			periodEnd: "2026-11-01T00:00:00.000Z",
+			totalPlanned: 5000,
+			totalSpent: 3200,
+			totalRemaining: 1800,
+			totalPercentage: 64,
+		});
 
 		// arrays present (empty)
 		expect(summary.recentTransactions).toEqual([]);

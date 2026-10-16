@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { BudgetsService } from "../budgets/budgets.service";
+import { type BudgetProgress, BudgetsService } from "../budgets/budgets.service";
 import { StatementGenerationService } from "../card-statements/statement-generation.service";
 import type {
 	Account,
@@ -201,26 +201,21 @@ export class DashboardService {
 		return result.slice(0, 4);
 	}
 
-	private computeActiveBudgets(
-		progress: Array<{
-			id: string;
-			categoryName: string;
-			spent: number;
-			budget: number;
-			remaining: number;
-			percentage: number;
-		}>,
-	): ActiveBudget[] {
+	private computeActiveBudgets(progress: BudgetProgress[]): ActiveBudget[] {
 		return progress
 			.map((p) => ({
 				id: p.id,
-				categoryName: p.categoryName,
-				spent: p.spent,
-				budget: p.budget,
-				percentage: p.percentage,
-				remaining: p.remaining,
+				name: p.name,
+				kind: p.kind,
+				period: p.period,
+				periodStart: p.periodStart.toISOString(),
+				periodEnd: p.periodEnd.toISOString(),
+				totalPlanned: p.totalPlanned,
+				totalSpent: p.totalSpent,
+				totalRemaining: p.totalRemaining,
+				totalPercentage: p.totalPercentage,
 			}))
-			.sort((a, b) => b.percentage - a.percentage)
+			.sort((a, b) => b.totalPercentage - a.totalPercentage)
 			.slice(0, 4);
 	}
 

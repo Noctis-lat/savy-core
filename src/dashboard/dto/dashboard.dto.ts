@@ -1,5 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import type {
+	BudgetKind,
+	BudgetPeriod,
 	IncomeFrequency,
 	RecurringExpenseFrequency,
 	RecurringExpenseType,
@@ -26,11 +28,15 @@ export interface AccountDistribution {
 
 export interface ActiveBudget {
 	id: string;
-	categoryName: string;
-	spent: number;
-	budget: number;
-	percentage: number;
-	remaining: number;
+	name: string;
+	kind: BudgetKind;
+	period: BudgetPeriod | null;
+	periodStart: string;
+	periodEnd: string;
+	totalPlanned: number;
+	totalSpent: number;
+	totalRemaining: number;
+	totalPercentage: number;
 }
 
 export interface SavingsGoalSummary {
@@ -205,20 +211,47 @@ class ActiveBudgetDto implements ActiveBudget {
 	@ApiProperty({ example: "budget-uuid", description: "Budget ID" })
 	id!: string;
 
-	@ApiProperty({ example: "Groceries", description: "Category name" })
-	categoryName!: string;
+	@ApiProperty({ example: "Base", description: "Budget name" })
+	name!: string;
 
-	@ApiProperty({ example: 3200, description: "Amount spent in the current cycle" })
-	spent!: number;
+	@ApiProperty({
+		enum: ["RECURRING", "ONE_TIME"],
+		example: "RECURRING",
+		description: "RECURRING repeats every period; ONE_TIME covers a single date range",
+	})
+	kind!: BudgetKind;
 
-	@ApiProperty({ example: 5000, description: "Budget amount" })
-	budget!: number;
+	@ApiProperty({
+		enum: ["WEEKLY", "BIWEEKLY", "MONTHLY", "YEARLY"],
+		nullable: true,
+		example: "MONTHLY",
+		description: "Recurrence period (null for ONE_TIME budgets)",
+	})
+	period!: BudgetPeriod | null;
 
-	@ApiProperty({ example: 64, description: "Percentage of budget used (0-100+)" })
-	percentage!: number;
+	@ApiProperty({
+		example: "2026-10-01T00:00:00.000Z",
+		description: "Start of the current (or last) budget period",
+	})
+	periodStart!: string;
 
-	@ApiProperty({ example: 1800, description: "Remaining budget (budget - spent)" })
-	remaining!: number;
+	@ApiProperty({
+		example: "2026-11-01T00:00:00.000Z",
+		description: "End of the current (or last) budget period",
+	})
+	periodEnd!: string;
+
+	@ApiProperty({ example: 38500, description: "Sum of planned amounts across all items" })
+	totalPlanned!: number;
+
+	@ApiProperty({ example: 24640, description: "Sum of amounts recorded across all items" })
+	totalSpent!: number;
+
+	@ApiProperty({ example: 13860, description: "Remaining amount (totalPlanned - totalSpent)" })
+	totalRemaining!: number;
+
+	@ApiProperty({ example: 64, description: "Percentage of the budget used (0-100+)" })
+	totalPercentage!: number;
 }
 
 class SavingsGoalSummaryDto implements SavingsGoalSummary {
