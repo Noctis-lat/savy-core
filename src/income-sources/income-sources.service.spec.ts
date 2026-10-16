@@ -3,7 +3,7 @@ import { Test, type TestingModule } from "@nestjs/testing";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { PrismaService } from "../prisma/prisma.service";
-import { QueryIncomeSourcesDto } from "./dto/income-source.dto";
+import { type CreateIncomeSourceDto, QueryIncomeSourcesDto } from "./dto/income-source.dto";
 import { IncomeSourcesService } from "./income-sources.service";
 
 describe("IncomeSourcesService (findAll filters)", () => {
@@ -61,6 +61,7 @@ describe("IncomeSourcesService (delete / activate / deactivate)", () => {
 		await service.remove("s1", "p1");
 		expect(prisma.incomeSource.findFirst).toHaveBeenCalledWith({
 			where: { id: "s1", profileId: "p1" },
+			include: { category: { select: { id: true, name: true, type: true } } },
 		});
 		expect(prisma.incomeSource.delete).toHaveBeenCalledWith({ where: { id: "s1" } });
 		expect(prisma.incomeSource.update).not.toHaveBeenCalled();
@@ -129,10 +130,10 @@ describe("IncomeSourcesService (categoryId validation)", () => {
 	const incomeCategory = { id: "cat-1", type: "INCOME" };
 	const expenseCategory = { id: "cat-2", type: "EXPENSE" };
 
-	const baseCreateDto = {
+	const baseCreateDto: CreateIncomeSourceDto = {
 		name: "Salary",
 		amount: 5000,
-		frequency: "MONTHLY",
+		frequency: "MONTHLY" as CreateIncomeSourceDto["frequency"],
 		paydays: [15],
 		destinationAccountId: "acct-1",
 	};
@@ -234,9 +235,9 @@ describe("IncomeSourcesService (categoryId validation)", () => {
 			isActive: true,
 		});
 		prisma.category.findFirst.mockResolvedValue(null);
-		await expect(service.update("src-1", "p1", { categoryId: "cat-missing" })).rejects.toBeInstanceOf(
-			NotFoundException,
-		);
+		await expect(
+			service.update("src-1", "p1", { categoryId: "cat-missing" }),
+		).rejects.toBeInstanceOf(NotFoundException);
 		expect(prisma.incomeSource.update).not.toHaveBeenCalled();
 	});
 
