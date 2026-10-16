@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
+import { ScheduleModule } from "@nestjs/schedule";
 import { LoggerModule } from "nestjs-pino";
 import { AccountsModule } from "./accounts/accounts.module";
 import { AuthModule } from "./auth/auth.module";
@@ -13,6 +14,7 @@ import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 import { ResponseInterceptor } from "./common/interceptors/response.interceptor";
 import { CreditCardsModule } from "./credit-cards/credit-cards.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
+import { IncomeGenerationModule } from "./income-generation/income-generation.module";
 import { IncomeSourcesModule } from "./income-sources/income-sources.module";
 import { LoansModule } from "./loans/loans.module";
 import { PrismaModule } from "./prisma/prisma.module";
@@ -26,6 +28,7 @@ import { TransactionsModule } from "./transactions/transactions.module";
 		ConfigModule.forRoot({
 			isGlobal: true,
 		}),
+		ScheduleModule.forRoot(),
 		LoggerModule.forRoot({
 			pinoHttp: {
 				transport:
@@ -49,6 +52,7 @@ import { TransactionsModule } from "./transactions/transactions.module";
 		LoansModule,
 		DashboardModule,
 		RecurringExpensesModule,
+		IncomeGenerationModule,
 	],
 	providers: [
 		{
