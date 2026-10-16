@@ -1,21 +1,98 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import type { Budget, BudgetPeriod } from "../generated/prisma/client";
+import {
+	type BudgetKind,
+	type BudgetPeriod,
+	type CategoryType,
+	Prisma,
+} from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { CreateBudgetDto, UpdateBudgetDto } from "./dto/budget.dto";
+import type { BudgetItemInputDto, CreateBudgetDto, UpdateBudgetDto } from "./dto/budget.dto";
+import {
+	computePeriodRange,
+	computePreviousPeriodRange,
+	type PeriodRange,
+} from "./period-calculator";
+
+const Decimal = Prisma.Decimal;
+type Decimal = Prisma.Decimal;
+
+const BUDGET_ITEMS_INCLUDE = {
+	items: {
+		include: {
+			category: { select: { id: true, name: true, type: true } },
+		},
+	},
+} as const satisfies Prisma.BudgetInclude;
+
+/** A budget with its items and their categories loaded. */
+export type BudgetWithItems = Prisma.BudgetGetPayload<{ include: typeof BUDGET_ITEMS_INCLUDE }>;
+
+type BudgetItemWithCategory = BudgetWithItems["items"][number];
+
+/** Per-item progress in a budget period. */
+export interface BudgetItemProgress {
+	categoryId: string;
+	categoryName: string;
+	categoryType: CategoryType;
+	plannedAmount: number;
+	spentAmount: number;
+	remaining: number;
+	percentage: number;
+}
+
+/** Progress for one budget in its current (or last) period. */
+export interface BudgetProgress {
+	id: string;
+	name: string;
+	kind: BudgetKind;
+	period: BudgetPeriod | null;
+	periodStart: Date;
+	periodEnd: Date;
+	totalPlanned: number;
+	totalSpent: number;
+	totalRemaining: number;
+	totalPercentage: number;
+	items: BudgetItemProgress[];
+}
+
+/** History entry built from a period snapshot. */
+export interface BudgetHistoryEntry {
+	id: string;
+	periodStart: Date;
+	periodEnd: Date;
+	totalPlanned: number;
+	totalSpent: number;
+	items: Array<{
+		budgetItemId: string;
+		categoryId: string;
+		plannedAmount: number;
+		spentAmount: number;
+	}>;
+	createdAt: Date;
+}
+
+export interface BudgetFilters {
+	isActive?: boolean;
+	kind?: BudgetKind;
+	period?: BudgetPeriod;
+	sortBy?: "startDate" | "name" | "createdAt";
+	order?: "asc" | "desc";
+}
+
+/** Internal Decimal-precision spent computation for one item. */
+interface ItemSpent {
+	item: BudgetItemWithCategory;
+	planned: Decimal;
+	spent: Decimal;
+}
 
 @Injectable()
 export class BudgetsService {
 	constructor(private readonly prisma: PrismaService) {}
 
-	async findAllByProfile(
-		profileId: string,
-		filters?: {
-			isActive?: boolean;
-			period?: BudgetPeriod;
-			sortBy?: "amount" | "startDate";
-			order?: "asc" | "desc";
-		},
-	): Promise<Budget[]> {
+	// ─── CRUD ──────────────────────────────────────────────────────────
+
+	async findAllByProfile(profileId: string, filters?: BudgetFilters): Promise<BudgetWithItems[]> {
 		const isActive = filters?.isActive ?? true;
 		const sortBy = filters?.sortBy ?? "startDate";
 		const order = filters?.order ?? "desc";
@@ -24,15 +101,18 @@ export class BudgetsService {
 			where: {
 				profileId,
 				isActive,
+				...(filters?.kind ? { kind: filters.kind } : {}),
 				...(filters?.period ? { period: filters.period } : {}),
 			},
 			orderBy: { [sortBy]: order },
+			include: BUDGET_ITEMS_INCLUDE,
 		});
 	}
 
-	async findOne(id: string, profileId: string): Promise<Budget> {
+	async findOne(id: string, profileId: string): Promise<BudgetWithItems> {
 		const budget = await this.prisma.budget.findFirst({
 			where: { id, profileId },
+			include: BUDGET_ITEMS_INCLUDE,
 		});
 		if (!budget) {
 			throw new NotFoundException("Budget not found");
@@ -40,42 +120,59 @@ export class BudgetsService {
 		return budget;
 	}
 
-	async create(profileId: string, dto: CreateBudgetDto): Promise<Budget> {
-		await this.validateCategory(dto.categoryId, profileId);
+	async create(profileId: string, dto: CreateBudgetDto): Promise<BudgetWithItems> {
+		const startDate = new Date(dto.startDate);
+		const endDate = dto.endDate ? new Date(dto.endDate) : null;
+		this.validateSchedule(dto.kind, dto.period ?? null, startDate, endDate);
+		await this.validateItems(profileId, dto.items);
 
 		return this.prisma.budget.create({
 			data: {
 				profileId,
-				categoryId: dto.categoryId,
-				amount: dto.amount,
-				period: dto.period,
-				startDate: new Date(dto.startDate),
-				endDate: dto.endDate ? new Date(dto.endDate) : null,
+				name: dto.name,
+				kind: dto.kind,
+				period: dto.period ?? null,
+				startDate,
+				endDate,
+				items: { create: this.toItemCreateData(dto.items) },
 			},
+			include: BUDGET_ITEMS_INCLUDE,
 		});
 	}
 
-	async update(id: string, profileId: string, dto: UpdateBudgetDto): Promise<Budget> {
+	async update(id: string, profileId: string, dto: UpdateBudgetDto): Promise<BudgetWithItems> {
 		const existing = await this.findOne(id, profileId);
 
-		if (dto.categoryId) {
-			await this.validateCategory(dto.categoryId, profileId);
+		const kind = dto.kind ?? existing.kind;
+		const period = dto.period !== undefined ? dto.period : existing.period;
+		const startDate = dto.startDate !== undefined ? new Date(dto.startDate) : existing.startDate;
+		const endDate =
+			dto.endDate !== undefined ? (dto.endDate ? new Date(dto.endDate) : null) : existing.endDate;
+		this.validateSchedule(kind, period, startDate, endDate);
+
+		const data: Prisma.BudgetUpdateInput = {
+			...(dto.name !== undefined ? { name: dto.name } : {}),
+			...(dto.kind !== undefined ? { kind: dto.kind } : {}),
+			...(dto.period !== undefined ? { period: dto.period } : {}),
+			...(dto.startDate !== undefined ? { startDate } : {}),
+			...(dto.endDate !== undefined ? { endDate } : {}),
+			...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+		};
+
+		const items = dto.items;
+		if (!items) {
+			return this.prisma.budget.update({ where: { id }, data, include: BUDGET_ITEMS_INCLUDE });
 		}
 
-		return this.prisma.budget.update({
-			where: { id },
-			data: {
-				categoryId: dto.categoryId ?? existing.categoryId,
-				amount: dto.amount ?? existing.amount,
-				period: dto.period ?? existing.period,
-				startDate: dto.startDate ? new Date(dto.startDate) : existing.startDate,
-				endDate:
-					dto.endDate !== undefined
-						? dto.endDate
-							? new Date(dto.endDate)
-							: null
-						: existing.endDate,
-			},
+		await this.validateItems(profileId, items);
+
+		return this.prisma.$transaction(async (tx) => {
+			await tx.budgetItem.deleteMany({ where: { budgetId: id } });
+			return tx.budget.update({
+				where: { id },
+				data: { ...data, items: { create: this.toItemCreateData(items) } },
+				include: BUDGET_ITEMS_INCLUDE,
+			});
 		});
 	}
 
@@ -87,209 +184,309 @@ export class BudgetsService {
 		});
 	}
 
-	async getProgress(
-		id: string,
-		profileId: string,
-	): Promise<{
-		spent: number;
-		budget: number;
-		remaining: number;
-		percentage: number;
-		periodStart: Date;
-		periodEnd: Date;
-	}> {
-		const budget = await this.findOne(id, profileId);
-		const { periodStart, periodEnd } = this.computeCurrentPeriod(budget.startDate, budget.period);
+	// ─── Progress ──────────────────────────────────────────────────────
 
-		// Sum all EXPENSE transactions in this category within the period
-		// across all accounts owned by the user
-		const accountIds = await this.getAccountIds(profileId);
+	async getProgress(budgetId: string, profileId: string): Promise<BudgetProgress> {
+		const budget = await this.findOne(budgetId, profileId);
+		return this.computeProgress(budget, profileId, new Date());
+	}
 
-		const result = await this.prisma.transaction.aggregate({
-			where: {
-				type: "EXPENSE",
-				categoryId: budget.categoryId,
-				accountId: { in: accountIds },
-				date: { gte: periodStart, lte: periodEnd },
-			},
-			_sum: { amount: true },
+	async getProgressForAll(profileId: string): Promise<BudgetProgress[]> {
+		const budgets = await this.prisma.budget.findMany({
+			where: { profileId, isActive: true },
+			orderBy: { startDate: "desc" },
+			include: BUDGET_ITEMS_INCLUDE,
 		});
 
-		const spent = result._sum.amount ? Number(result._sum.amount) : 0;
-		const budgetAmount = Number(budget.amount);
-		const remaining = budgetAmount - spent;
-		const percentage = budgetAmount > 0 ? Math.round((spent / budgetAmount) * 100) : 0;
+		const now = new Date();
+		return Promise.all(budgets.map((budget) => this.computeProgress(budget, profileId, now)));
+	}
+
+	// ─── History ───────────────────────────────────────────────────────
+
+	async getHistory(budgetId: string, profileId: string): Promise<BudgetHistoryEntry[]> {
+		const budget = await this.findOne(budgetId, profileId);
+		await this.createSnapshotIfNeeded(budget, profileId, new Date());
+
+		const snapshots = await this.prisma.budgetPeriodSnapshot.findMany({
+			where: { budgetId: budget.id },
+			orderBy: { periodStart: "desc" },
+			include: { items: true },
+		});
+
+		return snapshots.map((snap) => ({
+			id: snap.id,
+			periodStart: snap.periodStart,
+			periodEnd: snap.periodEnd,
+			totalPlanned: snap.totalPlanned.toNumber(),
+			totalSpent: snap.totalSpent.toNumber(),
+			items: snap.items.map((item) => ({
+				budgetItemId: item.budgetItemId,
+				categoryId: item.categoryId,
+				plannedAmount: item.plannedAmount.toNumber(),
+				spentAmount: item.spentAmount.toNumber(),
+			})),
+			createdAt: snap.createdAt,
+		}));
+	}
+
+	// ─── Internals: progress ───────────────────────────────────────────
+
+	private async computeProgress(
+		budget: BudgetWithItems,
+		profileId: string,
+		now: Date,
+	): Promise<BudgetProgress> {
+		await this.createSnapshotIfNeeded(budget, profileId, now);
+
+		const range = this.currentRange(budget, now);
+		const spent = await this.computeItemsSpent(budget.items, profileId, range);
+
+		const totalPlanned = spent.reduce((sum, s) => sum.add(s.planned), new Decimal(0));
+		const totalSpent = spent.reduce((sum, s) => sum.add(s.spent), new Decimal(0));
 
 		return {
-			spent,
-			budget: budgetAmount,
-			remaining,
-			percentage,
-			periodStart,
-			periodEnd,
+			id: budget.id,
+			name: budget.name,
+			kind: budget.kind,
+			period: budget.period,
+			periodStart: range.start,
+			periodEnd: range.end,
+			totalPlanned: totalPlanned.toNumber(),
+			totalSpent: totalSpent.toNumber(),
+			totalRemaining: totalPlanned.sub(totalSpent).toNumber(),
+			totalPercentage: percentage(totalSpent, totalPlanned),
+			items: spent.map(({ item, planned, spent: itemSpent }) => ({
+				categoryId: item.categoryId,
+				categoryName: item.category.name,
+				categoryType: item.category.type,
+				plannedAmount: planned.toNumber(),
+				spentAmount: itemSpent.toNumber(),
+				remaining: planned.sub(itemSpent).toNumber(),
+				percentage: percentage(itemSpent, planned),
+			})),
 		};
 	}
 
 	/**
-	 * Compute progress for ALL active budgets of a profile in a single pass.
-	 * Reused by DashboardService to avoid duplicating period logic.
+	 * Current period for a budget. For RECURRING budgets whose endDate has passed,
+	 * the period containing endDate is returned (informational), clamped to endDate.
 	 */
-	async getProgressForAll(profileId: string): Promise<
-		Array<{
-			id: string;
-			categoryName: string;
-			spent: number;
-			budget: number;
-			remaining: number;
-			percentage: number;
-		}>
-	> {
-		const budgets = await this.prisma.budget.findMany({
-			where: { profileId, isActive: true },
-			include: { category: { select: { name: true } } },
-		});
-
-		if (budgets.length === 0) {
-			return [];
+	private currentRange(budget: BudgetWithItems, now: Date): PeriodRange {
+		const reference = this.referenceDate(budget, now);
+		const range = computePeriodRange(
+			budget.kind,
+			budget.period,
+			budget.startDate,
+			budget.endDate,
+			reference,
+		);
+		if (budget.kind === "RECURRING" && budget.endDate && range.end > budget.endDate) {
+			return { start: range.start, end: new Date(budget.endDate) };
 		}
+		return range;
+	}
 
-		const accountIds = await this.getAccountIds(profileId);
+	private referenceDate(budget: BudgetWithItems, now: Date): Date {
+		if (budget.kind === "RECURRING" && budget.endDate && now > budget.endDate) {
+			return new Date(budget.endDate);
+		}
+		return now;
+	}
 
-		const results = await Promise.all(
-			budgets.map(async (budget) => {
-				const { periodStart, periodEnd } = this.computeCurrentPeriod(
-					budget.startDate,
-					budget.period,
-				);
+	/**
+	 * Spent per item in the range, scoped to the user's accounts.
+	 *
+	 * EXPENSE category: EXPENSE tx with that category that are NOT installment-plan purchases
+	 *   + INSTALLMENT tx whose plan's purchase transaction has that category.
+	 * INCOME category: INCOME tx with that category.
+	 * TRANSFER / PAYMENT are never counted.
+	 */
+	private async computeItemsSpent(
+		items: BudgetItemWithCategory[],
+		profileId: string,
+		range: PeriodRange,
+	): Promise<ItemSpent[]> {
+		const baseWhere = {
+			account: { profileId },
+			date: { gte: range.start, lte: range.end },
+		} satisfies Prisma.TransactionWhereInput;
 
-				const agg = await this.prisma.transaction.aggregate({
-					where: {
-						type: "EXPENSE",
-						categoryId: budget.categoryId,
-						accountId: { in: accountIds },
-						date: { gte: periodStart, lte: periodEnd },
-					},
-					_sum: { amount: true },
-				});
+		return Promise.all(
+			items.map(async (item) => {
+				const planned = new Decimal(item.amount);
 
-				const spent = agg._sum.amount ? Number(agg._sum.amount) : 0;
-				const budgetAmount = Number(budget.amount);
-				const remaining = budgetAmount - spent;
-				const percentage = budgetAmount > 0 ? Math.round((spent / budgetAmount) * 100) : 0;
+				if (item.category.type === "INCOME") {
+					const income = await this.prisma.transaction.aggregate({
+						_sum: { amount: true },
+						where: { ...baseWhere, type: "INCOME", categoryId: item.categoryId },
+					});
+					return { item, planned, spent: toDecimal(income._sum.amount) };
+				}
+
+				const [expense, installments] = await Promise.all([
+					this.prisma.transaction.aggregate({
+						_sum: { amount: true },
+						where: {
+							...baseWhere,
+							type: "EXPENSE",
+							categoryId: item.categoryId,
+							installmentPlan: null,
+						},
+					}),
+					this.prisma.transaction.aggregate({
+						_sum: { amount: true },
+						where: {
+							...baseWhere,
+							type: "INSTALLMENT",
+							billedPlan: { transaction: { categoryId: item.categoryId } },
+						},
+					}),
+				]);
 
 				return {
-					id: budget.id,
-					categoryName: budget.category.name,
-					spent,
-					budget: budgetAmount,
-					remaining,
-					percentage,
+					item,
+					planned,
+					spent: toDecimal(expense._sum.amount).add(toDecimal(installments._sum.amount)),
 				};
 			}),
 		);
-
-		return results;
 	}
 
-	private async getAccountIds(profileId: string): Promise<string[]> {
-		const accounts = await this.prisma.account.findMany({
-			where: { profileId },
+	// ─── Internals: snapshots ──────────────────────────────────────────
+
+	/**
+	 * Lazily persist the immediately previous period once it has ended.
+	 * Idempotent: skips existing snapshots and swallows unique races (P2002).
+	 */
+	private async createSnapshotIfNeeded(
+		budget: BudgetWithItems,
+		profileId: string,
+		now: Date,
+	): Promise<void> {
+		if (budget.kind !== "RECURRING" || budget.items.length === 0) {
+			return;
+		}
+
+		const previous = computePreviousPeriodRange(
+			budget.kind,
+			budget.period,
+			budget.startDate,
+			budget.endDate,
+			this.referenceDate(budget, now),
+		);
+		if (!previous || previous.start < budget.startDate || previous.end >= now) {
+			return;
+		}
+
+		const existing = await this.prisma.budgetPeriodSnapshot.findUnique({
+			where: { budgetId_periodStart: { budgetId: budget.id, periodStart: previous.start } },
 			select: { id: true },
 		});
-		return accounts.map((a) => a.id);
-	}
-
-	private computeCurrentPeriod(
-		startDate: Date,
-		period: BudgetPeriod,
-	): {
-		periodStart: Date;
-		periodEnd: Date;
-	} {
-		const now = new Date();
-		const start = new Date(startDate);
-
-		const periodMs: Record<BudgetPeriod, number> = {
-			WEEKLY: 7 * 24 * 60 * 60 * 1000,
-			BIWEEKLY: 14 * 24 * 60 * 60 * 1000,
-			MONTHLY: 30 * 24 * 60 * 60 * 1000, // approximate, adjusted below
-			YEARLY: 365 * 24 * 60 * 60 * 1000, // approximate, adjusted below
-		};
-
-		// For WEEKLY and BIWEEKLY, use fixed ms math
-		if (period === "WEEKLY" || period === "BIWEEKLY") {
-			const elapsed = now.getTime() - start.getTime();
-			const cyclesPassed = Math.floor(elapsed / periodMs[period]);
-			const periodStart = new Date(start.getTime() + cyclesPassed * periodMs[period]);
-			const periodEnd = new Date(periodStart.getTime() + periodMs[period] - 1);
-			return { periodStart, periodEnd };
+		if (existing) {
+			return;
 		}
 
-		// For MONTHLY and YEARLY, use calendar math to avoid drift
-		if (period === "MONTHLY") {
-			const startDay = start.getUTCDate();
-			const startMonth = start.getUTCMonth();
-			const startYear = start.getUTCFullYear();
+		const spent = await this.computeItemsSpent(budget.items, profileId, previous);
+		const totalPlanned = spent.reduce((sum, s) => sum.add(s.planned), new Decimal(0));
+		const totalSpent = spent.reduce((sum, s) => sum.add(s.spent), new Decimal(0));
 
-			// Find the most recent cycle start
-			let cycleYear = now.getUTCFullYear();
-			let cycleMonth = now.getUTCMonth();
-
-			// If today's day is before the start day, we're in the previous cycle
-			if (now.getUTCDate() < startDay) {
-				cycleMonth -= 1;
-				if (cycleMonth < 0) {
-					cycleMonth = 11;
-					cycleYear -= 1;
-				}
+		try {
+			await this.prisma.budgetPeriodSnapshot.create({
+				data: {
+					budgetId: budget.id,
+					periodStart: previous.start,
+					periodEnd: previous.end,
+					totalPlanned,
+					totalSpent,
+					items: {
+						createMany: {
+							data: spent.map((s) => ({
+								budgetItemId: s.item.id,
+								categoryId: s.item.categoryId,
+								plannedAmount: s.planned,
+								spentAmount: s.spent,
+							})),
+						},
+					},
+				},
+			});
+		} catch (error) {
+			if (!isUniqueViolation(error)) {
+				throw error;
 			}
-
-			// Count months from original start to find the exact cycle
-			const monthsSinceStart = (cycleYear - startYear) * 12 + (cycleMonth - startMonth);
-			const adjustedMonths = Math.max(0, monthsSinceStart);
-
-			const periodStart = new Date(
-				Date.UTC(startYear, startMonth + adjustedMonths, startDay, 0, 0, 0, 0),
-			);
-			const periodEnd = new Date(
-				Date.UTC(startYear, startMonth + adjustedMonths + 1, startDay, 0, 0, 0, -1),
-			);
-			return { periodStart, periodEnd };
 		}
-
-		// YEARLY
-		const startDay = start.getUTCDate();
-		const startMonth = start.getUTCMonth();
-		const startYear = start.getUTCFullYear();
-
-		let cycleYear = now.getUTCFullYear();
-		if (
-			now.getUTCMonth() < startMonth ||
-			(now.getUTCMonth() === startMonth && now.getUTCDate() < startDay)
-		) {
-			cycleYear -= 1;
-		}
-
-		const yearsSinceStart = Math.max(0, cycleYear - startYear);
-		const periodStart = new Date(
-			Date.UTC(startYear + yearsSinceStart, startMonth, startDay, 0, 0, 0, 0),
-		);
-		const periodEnd = new Date(
-			Date.UTC(startYear + yearsSinceStart + 1, startMonth, startDay, 0, 0, 0, -1),
-		);
-		return { periodStart, periodEnd };
 	}
 
-	private async validateCategory(categoryId: string, profileId: string): Promise<void> {
-		const category = await this.prisma.category.findFirst({
-			where: { id: categoryId, profileId },
-			select: { id: true, type: true },
+	// ─── Validation ────────────────────────────────────────────────────
+
+	/**
+	 * RECURRING: period required, endDate optional.
+	 * ONE_TIME: period must be null, endDate required.
+	 * Whenever endDate is set it must be after startDate.
+	 */
+	private validateSchedule(
+		kind: BudgetKind,
+		period: BudgetPeriod | null,
+		startDate: Date,
+		endDate: Date | null,
+	): void {
+		if (kind === "RECURRING" && !period) {
+			throw new BadRequestException("RECURRING budget requires a period");
+		}
+		if (kind === "ONE_TIME") {
+			if (period) {
+				throw new BadRequestException("ONE_TIME budget must not have a period");
+			}
+			if (!endDate) {
+				throw new BadRequestException("ONE_TIME budget requires an endDate");
+			}
+		}
+		if (endDate && endDate.getTime() <= startDate.getTime()) {
+			throw new BadRequestException("endDate must be after startDate");
+		}
+	}
+
+	/** Items must reference distinct categories owned by the user (INCOME or EXPENSE). */
+	private async validateItems(profileId: string, items: BudgetItemInputDto[]): Promise<void> {
+		const categoryIds = items.map((item) => item.categoryId);
+		const unique = new Set(categoryIds);
+		if (unique.size !== categoryIds.length) {
+			throw new BadRequestException("Duplicate categoryId in budget items");
+		}
+
+		const categories = await this.prisma.category.findMany({
+			where: { id: { in: [...unique] }, profileId },
+			select: { id: true },
 		});
-		if (!category) {
-			throw new NotFoundException("Category not found");
-		}
-		if (category.type !== "EXPENSE") {
-			throw new BadRequestException("Budget category must be of type EXPENSE");
+		const found = new Set(categories.map((c) => c.id));
+		const missing = categoryIds.find((id) => !found.has(id));
+		if (missing) {
+			throw new NotFoundException(`Category ${missing} not found`);
 		}
 	}
+
+	private toItemCreateData(items: BudgetItemInputDto[]) {
+		return items.map((item) => ({ categoryId: item.categoryId, amount: item.amount }));
+	}
+}
+
+function toDecimal(value: Decimal | null): Decimal {
+	return value ? new Decimal(value) : new Decimal(0);
+}
+
+function percentage(spent: Decimal, planned: Decimal): number {
+	if (planned.lte(0)) {
+		return 0;
+	}
+	return spent.div(planned).mul(100).round().toNumber();
+}
+
+function isUniqueViolation(error: unknown): boolean {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		(error as { code: unknown }).code === "P2002"
+	);
 }

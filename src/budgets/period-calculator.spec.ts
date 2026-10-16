@@ -1,18 +1,17 @@
-import {
-	computePeriodRange,
-	computePreviousPeriodRange,
-	type PeriodRange,
-} from "./period-calculator";
+import { computePeriodRange, computePreviousPeriodRange } from "./period-calculator";
 
 // All dates use UTC to avoid timezone drift in tests.
 
-function utc(year: number, month: number, day: number, hours = 0, minutes = 0, seconds = 0, ms = 0): Date {
+function utc(
+	year: number,
+	month: number,
+	day: number,
+	hours = 0,
+	minutes = 0,
+	seconds = 0,
+	ms = 0,
+): Date {
 	return new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds, ms));
-}
-
-function expectRange(actual: PeriodRange, startYear: number, startMonth: number, startDay: number, endYear: number, endMonth: number, endDay: number, endMs = 999): void {
-	expect(actual.start.toISOString()).toBe(utc(startYear, startMonth, startDay).toISOString());
-	expect(actual.end.toISOString()).toBe(utc(endYear, endMonth, endDay, 23, 59, 59, endMs).toISOString());
 }
 
 // ─── ONE_TIME ──────────────────────────────────────────────────────────

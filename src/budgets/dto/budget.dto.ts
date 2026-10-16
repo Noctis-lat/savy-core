@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Type } from "class-transformer";
 import {
+	ArrayMinSize,
+	IsArray,
+	IsBoolean,
 	IsBooleanString,
 	IsDateString,
 	IsEnum,
@@ -8,8 +11,16 @@ import {
 	IsNumber,
 	IsOptional,
 	IsString,
+	IsUUID,
+	MaxLength,
 	Min,
+	ValidateNested,
 } from "class-validator";
+
+enum BudgetKind {
+	RECURRING = "RECURRING",
+	ONE_TIME = "ONE_TIME",
+}
 
 enum BudgetPeriod {
 	WEEKLY = "WEEKLY",
@@ -18,9 +29,15 @@ enum BudgetPeriod {
 	YEARLY = "YEARLY",
 }
 
+enum CategoryType {
+	INCOME = "INCOME",
+	EXPENSE = "EXPENSE",
+}
+
 enum BudgetSortBy {
-	amount = "amount",
+	name = "name",
 	startDate = "startDate",
+	createdAt = "createdAt",
 }
 
 enum SortOrder {
@@ -28,142 +45,150 @@ enum SortOrder {
 	desc = "desc",
 }
 
-export class CreateBudgetDto {
-	@ApiProperty({ example: "category-uuid", description: "Category ID (must be EXPENSE type)" })
-	@IsString()
-	@IsNotEmpty()
+// ─── Request DTOs ──────────────────────────────────────────────────────
+
+export class BudgetItemInputDto {
+	@ApiProperty({
+		example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		description: "Category ID (INCOME or EXPENSE, must belong to the user)",
+	})
+	@IsUUID()
 	categoryId!: string;
 
-	@ApiProperty({ example: 5000, description: "Budget amount for the period" })
+	@ApiProperty({ example: 5000, description: "Planned amount for this category in the period" })
 	@Type(() => Number)
-	@IsNumber()
-	@Min(0)
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0.01)
 	amount!: number;
-
-	@ApiProperty({
-		enum: BudgetPeriod,
-		example: "MONTHLY",
-		description: "Budget period",
-	})
-	@IsEnum(BudgetPeriod)
-	period!: BudgetPeriod;
-
-	@ApiProperty({
-		example: "2026-01-15T00:00:00.000Z",
-		description: "Start date of the first cycle",
-	})
-	@IsDateString()
-	startDate!: string;
-
-	@ApiPropertyOptional({
-		example: "2026-12-31T00:00:00.000Z",
-		description: "Optional end date for temporary budgets",
-	})
-	@IsOptional()
-	@IsDateString()
-	endDate?: string;
 }
 
-export class UpdateBudgetDto {
-	@ApiPropertyOptional({
-		example: "category-uuid",
-		description: "Category ID (must be EXPENSE type)",
-	})
-	@IsOptional()
+export class CreateBudgetDto {
+	@ApiProperty({ example: "Base", description: "Budget name" })
 	@IsString()
 	@IsNotEmpty()
-	categoryId?: string;
+	@MaxLength(100)
+	name!: string;
 
-	@ApiPropertyOptional({ example: 5000, description: "Budget amount for the period" })
-	@IsOptional()
-	@Type(() => Number)
-	@IsNumber()
-	@Min(0)
-	amount?: number;
+	@ApiProperty({
+		enum: BudgetKind,
+		example: BudgetKind.RECURRING,
+		description: "RECURRING repeats every period; ONE_TIME covers a single date range",
+	})
+	@IsEnum(BudgetKind)
+	kind!: BudgetKind;
 
-	@ApiPropertyOptional({ enum: BudgetPeriod, example: "MONTHLY", description: "Budget period" })
+	@ApiPropertyOptional({
+		enum: BudgetPeriod,
+		example: BudgetPeriod.MONTHLY,
+		description: "Required for RECURRING, must be omitted for ONE_TIME",
+	})
 	@IsOptional()
 	@IsEnum(BudgetPeriod)
 	period?: BudgetPeriod;
 
+	@ApiProperty({ example: "2026-01-01", description: "Budget start date (ISO 8601)" })
+	@IsDateString()
+	startDate!: string;
+
 	@ApiPropertyOptional({
-		example: "2026-01-15T00:00:00.000Z",
-		description: "Start date of the first cycle",
+		example: "2026-12-31",
+		description:
+			"Required for ONE_TIME (must be after startDate). Optional for RECURRING (stops recurrence).",
 	})
+	@IsOptional()
+	@IsDateString()
+	endDate?: string;
+
+	@ApiProperty({
+		type: () => [BudgetItemInputDto],
+		description: "Budget items, one per category (at least 1, no duplicate categories)",
+	})
+	@IsArray()
+	@ArrayMinSize(1)
+	@ValidateNested({ each: true })
+	@Type(() => BudgetItemInputDto)
+	items!: BudgetItemInputDto[];
+}
+
+export class UpdateBudgetDto {
+	@ApiPropertyOptional({ example: "Base", description: "Budget name" })
+	@IsOptional()
+	@IsString()
+	@IsNotEmpty()
+	@MaxLength(100)
+	name?: string;
+
+	@ApiPropertyOptional({
+		enum: BudgetKind,
+		example: BudgetKind.RECURRING,
+		description: "RECURRING or ONE_TIME",
+	})
+	@IsOptional()
+	@IsEnum(BudgetKind)
+	kind?: BudgetKind;
+
+	@ApiPropertyOptional({
+		enum: BudgetPeriod,
+		example: BudgetPeriod.MONTHLY,
+		nullable: true,
+		description: "Required for RECURRING. Pass null to clear when switching to ONE_TIME.",
+	})
+	@IsOptional()
+	@IsEnum(BudgetPeriod)
+	period?: BudgetPeriod | null;
+
+	@ApiPropertyOptional({ example: "2026-01-01", description: "Budget start date (ISO 8601)" })
 	@IsOptional()
 	@IsDateString()
 	startDate?: string;
 
-	@ApiPropertyOptional({ example: "2026-12-31T00:00:00.000Z", description: "Optional end date" })
+	@ApiPropertyOptional({
+		example: "2026-12-31",
+		nullable: true,
+		description: "Required for ONE_TIME, optional for RECURRING. Pass null to clear.",
+	})
 	@IsOptional()
 	@IsDateString()
-	endDate?: string;
-}
+	endDate?: string | null;
 
-export class BudgetResponseDto {
-	@ApiProperty({ example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890", description: "Budget ID" })
-	id!: string;
+	@ApiPropertyOptional({ example: true, description: "Whether the budget is active" })
+	@IsOptional()
+	@IsBoolean()
+	isActive?: boolean;
 
-	@ApiProperty({ example: "profile-uuid", description: "Owner profile ID" })
-	profileId!: string;
-
-	@ApiProperty({ example: "category-uuid", description: "Category ID" })
-	categoryId!: string;
-
-	@ApiProperty({ example: 5000, description: "Budget amount" })
-	amount!: number;
-
-	@ApiProperty({ enum: BudgetPeriod, example: "MONTHLY", description: "Budget period" })
-	period!: BudgetPeriod;
-
-	@ApiProperty({ example: "2026-01-15T00:00:00.000Z", description: "Start date of first cycle" })
-	startDate!: Date;
-
-	@ApiPropertyOptional({ example: "2026-12-31T00:00:00.000Z", description: "Optional end date" })
-	endDate!: Date | null;
-
-	@ApiProperty({ example: true, description: "Whether the budget is active" })
-	isActive!: boolean;
-
-	@ApiProperty({ example: "2026-07-28T20:00:00.000Z", description: "Creation date" })
-	createdAt!: Date;
-
-	@ApiProperty({ example: "2026-07-28T20:00:00.000Z", description: "Last update date" })
-	updatedAt!: Date;
-}
-
-export class BudgetProgressDto {
-	@ApiProperty({ example: 3200, description: "Amount spent in the current cycle" })
-	spent!: number;
-
-	@ApiProperty({ example: 5000, description: "Budget amount" })
-	budget!: number;
-
-	@ApiProperty({ example: 1800, description: "Remaining budget (budget - spent)" })
-	remaining!: number;
-
-	@ApiProperty({ example: 64, description: "Percentage of budget used (0-100+)" })
-	percentage!: number;
-
-	@ApiProperty({ example: "2026-07-15T00:00:00.000Z", description: "Current cycle start date" })
-	periodStart!: Date;
-
-	@ApiProperty({ example: "2026-08-14T23:59:59.999Z", description: "Current cycle end date" })
-	periodEnd!: Date;
+	@ApiPropertyOptional({
+		type: () => [BudgetItemInputDto],
+		description: "If provided, replaces ALL budget items",
+	})
+	@IsOptional()
+	@IsArray()
+	@ArrayMinSize(1)
+	@ValidateNested({ each: true })
+	@Type(() => BudgetItemInputDto)
+	items?: BudgetItemInputDto[];
 }
 
 export class QueryBudgetsDto {
 	@ApiPropertyOptional({
 		example: "true",
-		description: 'Filter by active state (accepts "true"/"false"). Defaults to true.',
+		description: 'Filter by active state ("true"/"false"). Defaults to true.',
 	})
 	@IsOptional()
 	@IsBooleanString()
 	isActive?: string;
 
 	@ApiPropertyOptional({
+		enum: BudgetKind,
+		example: BudgetKind.RECURRING,
+		description: "Filter by budget kind",
+	})
+	@IsOptional()
+	@IsEnum(BudgetKind)
+	kind?: BudgetKind;
+
+	@ApiPropertyOptional({
 		enum: BudgetPeriod,
-		example: "MONTHLY",
+		example: BudgetPeriod.MONTHLY,
 		description: "Filter by budget period",
 	})
 	@IsOptional()
@@ -172,8 +197,8 @@ export class QueryBudgetsDto {
 
 	@ApiPropertyOptional({
 		enum: BudgetSortBy,
-		example: "startDate",
-		default: "startDate",
+		example: BudgetSortBy.startDate,
+		default: BudgetSortBy.startDate,
 		description: "Sort field",
 	})
 	@IsOptional()
@@ -182,11 +207,187 @@ export class QueryBudgetsDto {
 
 	@ApiPropertyOptional({
 		enum: SortOrder,
-		example: "desc",
-		default: "desc",
+		example: SortOrder.desc,
+		default: SortOrder.desc,
 		description: "Sort order",
 	})
 	@IsOptional()
 	@IsEnum(SortOrder)
 	order?: SortOrder;
+}
+
+// ─── Response DTOs ─────────────────────────────────────────────────────
+
+export class BudgetItemCategoryDto {
+	@ApiProperty({ example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890", description: "Category ID" })
+	id!: string;
+
+	@ApiProperty({ example: "Groceries", description: "Category name" })
+	name!: string;
+
+	@ApiProperty({ enum: CategoryType, example: CategoryType.EXPENSE, description: "Category type" })
+	type!: CategoryType;
+}
+
+export class BudgetItemResponseDto {
+	@ApiProperty({ example: "f1e2d3c4-b5a6-7890-abcd-ef1234567890", description: "Item ID" })
+	id!: string;
+
+	@ApiProperty({ example: "b1c2d3e4-f5a6-7890-abcd-ef1234567890", description: "Budget ID" })
+	budgetId!: string;
+
+	@ApiProperty({ example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890", description: "Category ID" })
+	categoryId!: string;
+
+	@ApiProperty({ example: "5000.00", description: "Planned amount (decimal string)" })
+	amount!: string;
+
+	@ApiProperty({ type: () => BudgetItemCategoryDto, description: "Item category" })
+	category!: BudgetItemCategoryDto;
+
+	@ApiProperty({ example: "2026-01-01T00:00:00.000Z", description: "Creation date" })
+	createdAt!: Date;
+
+	@ApiProperty({ example: "2026-01-01T00:00:00.000Z", description: "Last update date" })
+	updatedAt!: Date;
+}
+
+export class BudgetResponseDto {
+	@ApiProperty({ example: "b1c2d3e4-f5a6-7890-abcd-ef1234567890", description: "Budget ID" })
+	id!: string;
+
+	@ApiProperty({ example: "c1d2e3f4-a5b6-7890-abcd-ef1234567890", description: "Owner profile ID" })
+	profileId!: string;
+
+	@ApiProperty({ example: "Base", description: "Budget name" })
+	name!: string;
+
+	@ApiProperty({ enum: BudgetKind, example: BudgetKind.RECURRING, description: "Budget kind" })
+	kind!: BudgetKind;
+
+	@ApiProperty({
+		enum: BudgetPeriod,
+		example: BudgetPeriod.MONTHLY,
+		nullable: true,
+		description: "Budget period (null for ONE_TIME)",
+	})
+	period!: BudgetPeriod | null;
+
+	@ApiProperty({ example: "2026-01-01T00:00:00.000Z", description: "Start date" })
+	startDate!: Date;
+
+	@ApiProperty({ example: null, nullable: true, description: "End date" })
+	endDate!: Date | null;
+
+	@ApiProperty({ example: true, description: "Whether the budget is active" })
+	isActive!: boolean;
+
+	@ApiProperty({ type: () => [BudgetItemResponseDto], description: "Budget items" })
+	items!: BudgetItemResponseDto[];
+
+	@ApiProperty({ example: "2026-01-01T00:00:00.000Z", description: "Creation date" })
+	createdAt!: Date;
+
+	@ApiProperty({ example: "2026-01-01T00:00:00.000Z", description: "Last update date" })
+	updatedAt!: Date;
+}
+
+export class BudgetItemProgressDto {
+	@ApiProperty({ example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890", description: "Category ID" })
+	categoryId!: string;
+
+	@ApiProperty({ example: "Groceries", description: "Category name" })
+	categoryName!: string;
+
+	@ApiProperty({ enum: CategoryType, example: CategoryType.EXPENSE, description: "Category type" })
+	categoryType!: CategoryType;
+
+	@ApiProperty({ example: 5000, description: "Planned amount" })
+	plannedAmount!: number;
+
+	@ApiProperty({ example: 3200, description: "Spent (EXPENSE) or received (INCOME) in period" })
+	spentAmount!: number;
+
+	@ApiProperty({ example: 1800, description: "Planned minus spent (negative when exceeded)" })
+	remaining!: number;
+
+	@ApiProperty({ example: 64, description: "Percentage used, rounded (can exceed 100)" })
+	percentage!: number;
+}
+
+export class BudgetProgressDto {
+	@ApiProperty({ example: "b1c2d3e4-f5a6-7890-abcd-ef1234567890", description: "Budget ID" })
+	id!: string;
+
+	@ApiProperty({ example: "Base", description: "Budget name" })
+	name!: string;
+
+	@ApiProperty({ enum: BudgetKind, example: BudgetKind.RECURRING, description: "Budget kind" })
+	kind!: BudgetKind;
+
+	@ApiProperty({
+		enum: BudgetPeriod,
+		example: BudgetPeriod.MONTHLY,
+		nullable: true,
+		description: "Budget period (null for ONE_TIME)",
+	})
+	period!: BudgetPeriod | null;
+
+	@ApiProperty({ example: "2026-10-01T00:00:00.000Z", description: "Current period start" })
+	periodStart!: Date;
+
+	@ApiProperty({ example: "2026-10-31T23:59:59.999Z", description: "Current period end" })
+	periodEnd!: Date;
+
+	@ApiProperty({ example: 5000, description: "Total planned across all items" })
+	totalPlanned!: number;
+
+	@ApiProperty({ example: 3200, description: "Total spent across all items" })
+	totalSpent!: number;
+
+	@ApiProperty({ example: 1800, description: "Total remaining" })
+	totalRemaining!: number;
+
+	@ApiProperty({ example: 64, description: "Total percentage used, rounded" })
+	totalPercentage!: number;
+
+	@ApiProperty({ type: () => [BudgetItemProgressDto], description: "Per-item progress" })
+	items!: BudgetItemProgressDto[];
+}
+
+export class BudgetHistoryItemDto {
+	@ApiProperty({ example: "f1e2d3c4-b5a6-7890-abcd-ef1234567890", description: "Budget item ID" })
+	budgetItemId!: string;
+
+	@ApiProperty({ example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890", description: "Category ID" })
+	categoryId!: string;
+
+	@ApiProperty({ example: 5000, description: "Planned amount for the period" })
+	plannedAmount!: number;
+
+	@ApiProperty({ example: 3200, description: "Spent amount for the period" })
+	spentAmount!: number;
+}
+
+export class BudgetHistoryDto {
+	@ApiProperty({ example: "d1e2f3a4-b5c6-7890-abcd-ef1234567890", description: "Snapshot ID" })
+	id!: string;
+
+	@ApiProperty({ example: "2026-09-01T00:00:00.000Z", description: "Period start" })
+	periodStart!: Date;
+
+	@ApiProperty({ example: "2026-09-30T23:59:59.999Z", description: "Period end" })
+	periodEnd!: Date;
+
+	@ApiProperty({ example: 5000, description: "Total planned for the period" })
+	totalPlanned!: number;
+
+	@ApiProperty({ example: 3200, description: "Total spent for the period" })
+	totalSpent!: number;
+
+	@ApiProperty({ type: () => [BudgetHistoryItemDto], description: "Per-item snapshot" })
+	items!: BudgetHistoryItemDto[];
+
+	@ApiProperty({ example: "2026-10-01T00:00:00.000Z", description: "Snapshot creation date" })
+	createdAt!: Date;
 }

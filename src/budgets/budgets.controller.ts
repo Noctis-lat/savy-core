@@ -10,6 +10,7 @@ import {
 import type { Profile } from "../generated/prisma/client";
 import { BudgetsService } from "./budgets.service";
 import {
+	BudgetHistoryDto,
 	BudgetProgressDto,
 	BudgetResponseDto,
 	CreateBudgetDto,
@@ -24,13 +25,15 @@ export class BudgetsController {
 	constructor(private readonly budgetsService: BudgetsService) {}
 
 	@Get()
-	@ApiOperation({ summary: "List all budgets for the current user with optional filters" })
-	@ApiArraySuccessResponse(200, BudgetResponseDto, "Returns array of budgets")
+	@ApiOperation({ summary: "List budgets for the current user with optional filters" })
+	@ApiArraySuccessResponse(200, BudgetResponseDto, "Returns array of budgets with items")
+	@ApiErrorResponse(400, "Invalid query parameters")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(500, "Internal server error")
 	async findAll(@CurrentUser() profile: Profile, @Query() query: QueryBudgetsDto) {
 		return this.budgetsService.findAllByProfile(profile.id, {
 			isActive: query.isActive === undefined ? undefined : query.isActive === "true",
+			kind: query.kind,
 			period: query.period,
 			sortBy: query.sortBy,
 			order: query.order,
@@ -39,7 +42,7 @@ export class BudgetsController {
 
 	@Get(":id")
 	@ApiOperation({ summary: "Get a single budget by ID" })
-	@ApiSuccessResponse(200, BudgetResponseDto, "Returns the budget")
+	@ApiSuccessResponse(200, BudgetResponseDto, "Returns the budget with items")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Budget not found")
 	@ApiErrorResponse(500, "Internal server error")
@@ -48,12 +51,8 @@ export class BudgetsController {
 	}
 
 	@Get(":id/progress")
-	@ApiOperation({ summary: "Get budget progress for the current cycle (spent vs budget)" })
-	@ApiSuccessResponse(
-		200,
-		BudgetProgressDto,
-		"Returns spent, remaining, percentage, and current cycle dates",
-	)
+	@ApiOperation({ summary: "Get per-item budget progress for the current period" })
+	@ApiSuccessResponse(200, BudgetProgressDto, "Returns planned vs spent for the current period")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Budget not found")
 	@ApiErrorResponse(500, "Internal server error")
@@ -61,10 +60,20 @@ export class BudgetsController {
 		return this.budgetsService.getProgress(id, profile.id);
 	}
 
+	@Get(":id/history")
+	@ApiOperation({ summary: "Get closed-period snapshots for a budget (newest first)" })
+	@ApiArraySuccessResponse(200, BudgetHistoryDto, "Returns period snapshots with items")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Budget not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async getHistory(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.budgetsService.getHistory(id, profile.id);
+	}
+
 	@Post()
-	@ApiOperation({ summary: "Create a new budget" })
+	@ApiOperation({ summary: "Create a budget with one or more category items" })
 	@ApiSuccessResponse(201, BudgetResponseDto, "Returns the created budget")
-	@ApiErrorResponse(400, "Validation error or category must be EXPENSE type")
+	@ApiErrorResponse(400, "Validation error, invalid kind/period/endDate or duplicate category")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Category not found")
 	@ApiErrorResponse(500, "Internal server error")
@@ -73,11 +82,11 @@ export class BudgetsController {
 	}
 
 	@Patch(":id")
-	@ApiOperation({ summary: "Update a budget by ID" })
+	@ApiOperation({ summary: "Update a budget; items, if provided, replace all existing items" })
 	@ApiSuccessResponse(200, BudgetResponseDto, "Returns the updated budget")
-	@ApiErrorResponse(400, "Validation error or invalid request data")
+	@ApiErrorResponse(400, "Validation error, invalid kind/period/endDate or duplicate category")
 	@ApiErrorResponse(401, "Unauthorized")
-	@ApiErrorResponse(404, "Budget not found")
+	@ApiErrorResponse(404, "Budget or category not found")
 	@ApiErrorResponse(500, "Internal server error")
 	async update(
 		@Param("id") id: string,

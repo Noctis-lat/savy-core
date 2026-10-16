@@ -187,7 +187,10 @@ function monthlyPeriod(startDate: Date, now: Date): PeriodRange {
 			year -= 1;
 		}
 		// Safety: don't go before startDate
-		if (year < startDate.getUTCFullYear() || (year === startDate.getUTCFullYear() && month < startDate.getUTCMonth())) {
+		if (
+			year < startDate.getUTCFullYear() ||
+			(year === startDate.getUTCFullYear() && month < startDate.getUTCMonth())
+		) {
 			// Fallback to first period
 			return monthlyFirstPeriod(startDate);
 		}
@@ -245,7 +248,11 @@ function isLeapYear(year: number): boolean {
  * Clamp the anchor month+day for yearly periods.
  * Feb 29 clamps to Feb 28 in non-leap years.
  */
-function clampYearlyAnchor(year: number, month: number, day: number): { month: number; day: number } {
+function clampYearlyAnchor(
+	year: number,
+	month: number,
+	day: number,
+): { month: number; day: number } {
 	if (month === 1 && day === 29 && !isLeapYear(year)) {
 		return { month: 1, day: 28 };
 	}
