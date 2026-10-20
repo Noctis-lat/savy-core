@@ -7,11 +7,13 @@ import {
 	IsBooleanString,
 	IsDateString,
 	IsEnum,
+	IsInt,
 	IsNotEmpty,
 	IsNumber,
 	IsOptional,
 	IsString,
 	IsUUID,
+	Max,
 	MaxLength,
 	Min,
 	ValidateNested,
@@ -214,6 +216,32 @@ export class QueryBudgetsDto {
 	@IsOptional()
 	@IsEnum(SortOrder)
 	order?: SortOrder;
+
+	@ApiPropertyOptional({
+		example: 1,
+		default: 1,
+		minimum: 1,
+		description: "Page number (1-based)",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	page?: number;
+
+	@ApiPropertyOptional({
+		example: 10,
+		default: 10,
+		minimum: 1,
+		maximum: 100,
+		description: "Items per page",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	perPage?: number;
 }
 
 // ─── Response DTOs ─────────────────────────────────────────────────────
@@ -290,6 +318,45 @@ export class BudgetResponseDto {
 
 	@ApiProperty({ example: "2026-01-01T00:00:00.000Z", description: "Last update date" })
 	updatedAt!: Date;
+}
+
+export class BudgetsInfoDto {
+	@ApiProperty({
+		example: 3200,
+		description:
+			"Actual spent on EXPENSE items in the current period, summed across all filtered budgets",
+	})
+	totalExpenses!: number;
+
+	@ApiProperty({
+		example: 15000,
+		description:
+			"Actual received on INCOME items in the current period, summed across all filtered budgets",
+	})
+	totalIncomes!: number;
+}
+
+export class BudgetsListResponseDto {
+	@ApiProperty({ type: () => [BudgetResponseDto], description: "Budgets in the current page" })
+	budgets!: BudgetResponseDto[];
+
+	@ApiProperty({
+		type: () => BudgetsInfoDto,
+		description: "Actual income/expense totals across all filtered budgets (not just this page)",
+	})
+	info!: BudgetsInfoDto;
+
+	@ApiProperty({ example: 1, description: "Current page number" })
+	page!: number;
+
+	@ApiProperty({ example: 10, description: "Items per page" })
+	perPage!: number;
+
+	@ApiProperty({ example: 1, description: "Total matching items across all pages" })
+	total!: number;
+
+	@ApiProperty({ example: 1, description: "Total pages (ceil(total / perPage))" })
+	totalPages!: number;
 }
 
 export class BudgetItemProgressDto {

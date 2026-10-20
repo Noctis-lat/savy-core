@@ -30,6 +30,7 @@ describe("BudgetsService", () => {
 		prisma = {
 			budget: {
 				findMany: jest.fn().mockResolvedValue([]),
+				count: jest.fn().mockResolvedValue(0),
 				findFirst: jest.fn(),
 				create: jest.fn(),
 				update: jest.fn(),
@@ -650,6 +651,105 @@ describe("BudgetsService", () => {
 		});
 	});
 
+	// ─── findAllByProfile: pagination + info ───────────────────────────
+
+	describe("findAllByProfile pagination and info", () => {
+		function incomeItem(overrides: Record<string, unknown> = {}) {
+			return expenseItem({
+				id: "item-inc",
+				categoryId: "c-inc",
+				category: { id: "c-inc", name: "Salary", type: "INCOME" },
+				...overrides,
+			});
+		}
+
+		it("applies skip/take from page and perPage", async () => {
+			await service.findAllByProfile("p1", { page: 3, perPage: 5 });
+			const call = prisma.budget.findMany.mock.calls[0][0];
+			expect(call.skip).toBe(10);
+			expect(call.take).toBe(5);
+		});
+
+		it("defaults to page 1 and perPage 10", async () => {
+			const result = await service.findAllByProfile("p1", {});
+			const call = prisma.budget.findMany.mock.calls[0][0];
+			expect(call.skip).toBe(0);
+			expect(call.take).toBe(10);
+			expect(result.page).toBe(1);
+			expect(result.perPage).toBe(10);
+		});
+
+		it("returns totalPages 1 and zero info when there are no budgets", async () => {
+			prisma.budget.count.mockResolvedValue(0);
+			const result = await service.findAllByProfile("p1", {});
+			expect(result).toEqual({
+				budgets: [],
+				info: { totalExpenses: 0, totalIncomes: 0 },
+				page: 1,
+				perPage: 10,
+				total: 0,
+				totalPages: 1,
+			});
+		});
+
+		it("computes totalPages from total and perPage, counting with the same filters", async () => {
+			prisma.budget.count.mockResolvedValue(21);
+			const result = await service.findAllByProfile("p1", { perPage: 10, kind: "RECURRING" });
+			expect(result.total).toBe(21);
+			expect(result.totalPages).toBe(3);
+			expect(prisma.budget.count.mock.calls[0][0].where).toEqual({
+				profileId: "p1",
+				isActive: true,
+				kind: "RECURRING",
+			});
+		});
+
+		it("sums actual EXPENSE vs INCOME spent across all filtered budgets, not just the page", async () => {
+			const pageBudget = mockBudget({ id: "b1", items: [expenseItem()] });
+			const otherBudget = mockBudget({
+				id: "b2",
+				items: [expenseItem({ id: "item-2" }), incomeItem()],
+			});
+			// Page query returns only b1; the info query sees b1 and b2
+			prisma.budget.findMany.mockImplementation((args: { skip?: number }) =>
+				Promise.resolve(args.skip === undefined ? [pageBudget, otherBudget] : [pageBudget]),
+			);
+			prisma.budget.count.mockResolvedValue(2);
+			prisma.transaction.aggregate.mockImplementation(
+				(args: { where: { type: string; categoryId?: string } }) => {
+					const amounts: Record<string, string> = {
+						EXPENSE: "100.10",
+						INSTALLMENT: "50.05",
+						INCOME: "2000.005",
+					};
+					return Promise.resolve({ _sum: { amount: decimal(amounts[args.where.type]) } });
+				},
+			);
+
+			const result = await service.findAllByProfile("p1", { perPage: 1 });
+
+			expect(result.budgets).toEqual([pageBudget]);
+			// Same EXPENSE category in two budgets counts once per budget: 2 × (100.10 + 50.05)
+			expect(result.info.totalExpenses).toBe(300.3);
+			expect(result.info.totalIncomes).toBe(2000.01);
+			const infoCall = prisma.budget.findMany.mock.calls[1][0];
+			expect(infoCall.skip).toBeUndefined();
+			expect(infoCall.take).toBeUndefined();
+			expect(infoCall.where).toEqual({ profileId: "p1", isActive: true });
+		});
+
+		it("does not create or look up snapshots while listing", async () => {
+			const ended = mockBudget({ startDate: new Date("2025-01-01T00:00:00.000Z") });
+			prisma.budget.findMany.mockResolvedValue([ended]);
+			prisma.budget.count.mockResolvedValue(1);
+
+			await service.findAllByProfile("p1", {});
+
+			expect(prisma.budgetPeriodSnapshot.findUnique).not.toHaveBeenCalled();
+			expect(prisma.budgetPeriodSnapshot.create).not.toHaveBeenCalled();
+		});
+	});
+
 	// ─── getHistory ────────────────────────────────────────────────────
 
 	describe("getHistory", () => {
@@ -738,6 +838,26 @@ describe("QueryBudgetsDto validation", () => {
 		const instance = plainToInstance(QueryBudgetsDto, { kind: "WEEKLY" });
 		const errors = await validate(instance, { whitelist: true, forbidNonWhitelisted: true });
 		expect(errors.some((e) => e.property === "kind")).toBe(true);
+	});
+
+	it("rejects perPage greater than 100", async () => {
+		const instance = plainToInstance(QueryBudgetsDto, { perPage: "101" });
+		const errors = await validate(instance, { whitelist: true, forbidNonWhitelisted: true });
+		expect(errors.some((e) => e.property === "perPage")).toBe(true);
+	});
+
+	it("rejects page lower than 1", async () => {
+		const instance = plainToInstance(QueryBudgetsDto, { page: "0" });
+		const errors = await validate(instance, { whitelist: true, forbidNonWhitelisted: true });
+		expect(errors.some((e) => e.property === "page")).toBe(true);
+	});
+
+	it("accepts valid page and perPage strings", async () => {
+		const instance = plainToInstance(QueryBudgetsDto, { page: "2", perPage: "100" });
+		const errors = await validate(instance, { whitelist: true, forbidNonWhitelisted: true });
+		expect(errors).toHaveLength(0);
+		expect(instance.page).toBe(2);
+		expect(instance.perPage).toBe(100);
 	});
 });
 describe("CreateBudgetDto validation", () => {

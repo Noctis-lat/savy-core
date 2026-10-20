@@ -77,6 +77,23 @@ export interface BudgetFilters {
 	period?: BudgetPeriod;
 	sortBy?: "startDate" | "name" | "createdAt";
 	order?: "asc" | "desc";
+	page?: number;
+	perPage?: number;
+}
+
+/** Actual (registered) totals across all budgets matching the list filters. */
+export interface BudgetsInfo {
+	totalExpenses: number;
+	totalIncomes: number;
+}
+
+export interface BudgetsListResult {
+	budgets: BudgetWithItems[];
+	info: BudgetsInfo;
+	page: number;
+	perPage: number;
+	total: number;
+	totalPages: number;
 }
 
 /** Internal Decimal-precision spent computation for one item. */
@@ -92,21 +109,40 @@ export class BudgetsService {
 
 	// ─── CRUD ──────────────────────────────────────────────────────────
 
-	async findAllByProfile(profileId: string, filters?: BudgetFilters): Promise<BudgetWithItems[]> {
+	async findAllByProfile(profileId: string, filters?: BudgetFilters): Promise<BudgetsListResult> {
 		const isActive = filters?.isActive ?? true;
 		const sortBy = filters?.sortBy ?? "startDate";
 		const order = filters?.order ?? "desc";
+		const page = filters?.page ?? 1;
+		const perPage = filters?.perPage ?? 10;
 
-		return this.prisma.budget.findMany({
-			where: {
-				profileId,
-				isActive,
-				...(filters?.kind ? { kind: filters.kind } : {}),
-				...(filters?.period ? { period: filters.period } : {}),
-			},
-			orderBy: { [sortBy]: order },
-			include: BUDGET_ITEMS_INCLUDE,
-		});
+		const where: Prisma.BudgetWhereInput = {
+			profileId,
+			isActive,
+			...(filters?.kind ? { kind: filters.kind } : {}),
+			...(filters?.period ? { period: filters.period } : {}),
+		};
+
+		const [budgets, total, allMatching] = await Promise.all([
+			this.prisma.budget.findMany({
+				where,
+				orderBy: { [sortBy]: order },
+				skip: (page - 1) * perPage,
+				take: perPage,
+				include: BUDGET_ITEMS_INCLUDE,
+			}),
+			this.prisma.budget.count({ where }),
+			this.prisma.budget.findMany({ where, include: BUDGET_ITEMS_INCLUDE }),
+		]);
+
+		return {
+			budgets,
+			info: await this.computeListInfo(allMatching, profileId, new Date()),
+			page,
+			perPage,
+			total,
+			totalPages: Math.ceil(total / perPage) || 1,
+		};
 	}
 
 	async findOne(id: string, profileId: string): Promise<BudgetWithItems> {
@@ -265,6 +301,38 @@ export class BudgetsService {
 				remaining: planned.sub(itemSpent).toNumber(),
 				percentage: percentage(itemSpent, planned),
 			})),
+		};
+	}
+
+	/**
+	 * Actual EXPENSE/INCOME totals for the current period of every given budget.
+	 * Read-only: never creates snapshots. A category present in several budgets is
+	 * counted once per budget — each budget is an independent view, so duplication is intended.
+	 */
+	private async computeListInfo(
+		budgets: BudgetWithItems[],
+		profileId: string,
+		now: Date,
+	): Promise<BudgetsInfo> {
+		const spentPerBudget = await Promise.all(
+			budgets.map((budget) =>
+				this.computeItemsSpent(budget.items, profileId, this.currentRange(budget, now)),
+			),
+		);
+
+		let totalExpenses = new Decimal(0);
+		let totalIncomes = new Decimal(0);
+		for (const { item, spent } of spentPerBudget.flat()) {
+			if (item.category.type === "EXPENSE") {
+				totalExpenses = totalExpenses.add(spent);
+			} else if (item.category.type === "INCOME") {
+				totalIncomes = totalIncomes.add(spent);
+			}
+		}
+
+		return {
+			totalExpenses: totalExpenses.toDecimalPlaces(2).toNumber(),
+			totalIncomes: totalIncomes.toDecimalPlaces(2).toNumber(),
 		};
 	}
 

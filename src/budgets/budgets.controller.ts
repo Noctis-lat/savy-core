@@ -13,6 +13,7 @@ import {
 	BudgetHistoryDto,
 	BudgetProgressDto,
 	BudgetResponseDto,
+	BudgetsListResponseDto,
 	CreateBudgetDto,
 	QueryBudgetsDto,
 	UpdateBudgetDto,
@@ -25,8 +26,14 @@ export class BudgetsController {
 	constructor(private readonly budgetsService: BudgetsService) {}
 
 	@Get()
-	@ApiOperation({ summary: "List budgets for the current user with optional filters" })
-	@ApiArraySuccessResponse(200, BudgetResponseDto, "Returns array of budgets with items")
+	@ApiOperation({
+		summary: "List budgets for the current user with pagination and actual income/expense info",
+	})
+	@ApiSuccessResponse(
+		200,
+		BudgetsListResponseDto,
+		"Returns paginated budgets with items and actual totals across all filtered budgets",
+	)
 	@ApiErrorResponse(400, "Invalid query parameters")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(500, "Internal server error")
@@ -37,6 +44,8 @@ export class BudgetsController {
 			period: query.period,
 			sortBy: query.sortBy,
 			order: query.order,
+			page: query.page,
+			perPage: query.perPage,
 		});
 	}
 
