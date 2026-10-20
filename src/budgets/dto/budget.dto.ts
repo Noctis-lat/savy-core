@@ -267,8 +267,8 @@ export class BudgetItemResponseDto {
 	@ApiProperty({ example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890", description: "Category ID" })
 	categoryId!: string;
 
-	@ApiProperty({ example: "5000.00", description: "Planned amount (decimal string)" })
-	amount!: string;
+	@ApiProperty({ example: 5000, description: "Planned amount for this category" })
+	amount!: number;
 
 	@ApiProperty({ type: () => BudgetItemCategoryDto, description: "Item category" })
 	category!: BudgetItemCategoryDto;
