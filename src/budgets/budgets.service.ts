@@ -44,6 +44,8 @@ export interface BudgetItemProgress {
 export interface BudgetProgress {
 	id: string;
 	name: string;
+	color: string | null;
+	icon: string | null;
 	kind: BudgetKind;
 	period: BudgetPeriod | null;
 	periodStart: Date;
@@ -179,6 +181,8 @@ export class BudgetsService {
 			data: {
 				profileId,
 				name: dto.name,
+				color: dto.color ?? null,
+				icon: dto.icon ?? null,
 				kind: dto.kind,
 				period: dto.period ?? null,
 				startDate,
@@ -201,6 +205,8 @@ export class BudgetsService {
 
 		const data: Prisma.BudgetUpdateInput = {
 			...(dto.name !== undefined ? { name: dto.name } : {}),
+			...(dto.color !== undefined ? { color: dto.color } : {}),
+			...(dto.icon !== undefined ? { icon: dto.icon } : {}),
 			...(dto.kind !== undefined ? { kind: dto.kind } : {}),
 			...(dto.period !== undefined ? { period: dto.period } : {}),
 			...(dto.startDate !== undefined ? { startDate } : {}),
@@ -297,6 +303,8 @@ export class BudgetsService {
 		return {
 			id: budget.id,
 			name: budget.name,
+			color: budget.color,
+			icon: budget.icon,
 			kind: budget.kind,
 			period: budget.period,
 			periodStart: range.start,

@@ -216,6 +216,8 @@ model Budget {
   id         String        @id @default(uuid())
   profileId  String        @map("profile_id")
   name       String
+  color      String?
+  icon       String?
   kind       BudgetKind    @default(RECURRING)
   period     BudgetPeriod?
   startDate  DateTime      @map("start_date")

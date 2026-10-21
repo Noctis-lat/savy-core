@@ -29,6 +29,8 @@ export interface AccountDistribution {
 export interface ActiveBudget {
 	id: string;
 	name: string;
+	color: string | null;
+	icon: string | null;
 	kind: BudgetKind;
 	period: BudgetPeriod | null;
 	periodStart: string;
@@ -213,6 +215,12 @@ class ActiveBudgetDto implements ActiveBudget {
 
 	@ApiProperty({ example: "Base", description: "Budget name" })
 	name!: string;
+
+	@ApiPropertyOptional({ example: "#0d9488", description: "UI color" })
+	color!: string | null;
+
+	@ApiPropertyOptional({ example: "wallet", description: "Icon identifier" })
+	icon!: string | null;
 
 	@ApiProperty({
 		enum: ["RECURRING", "ONE_TIME"],

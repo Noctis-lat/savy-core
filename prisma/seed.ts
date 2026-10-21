@@ -499,6 +499,8 @@ async function main() {
 		data: {
 			profileId: PROFILE_ID,
 			name: "Base",
+			color: "#0d9488",
+			icon: "wallet",
 			kind: "RECURRING",
 			period: "MONTHLY",
 			startDate: monthStart,
@@ -512,6 +514,8 @@ async function main() {
 		data: {
 			profileId: PROFILE_ID,
 			name: "Vacaciones",
+			color: "#f59e0b",
+			icon: "plane",
 			kind: "ONE_TIME",
 			period: null,
 			startDate: new Date(Date.UTC(currentYear, currentMonth, 10)),

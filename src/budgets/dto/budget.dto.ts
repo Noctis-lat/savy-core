@@ -71,6 +71,16 @@ export class CreateBudgetDto {
 	@MaxLength(100)
 	name!: string;
 
+	@ApiPropertyOptional({ example: "#0d9488", description: "UI color hex/oklch" })
+	@IsOptional()
+	@IsString()
+	color?: string;
+
+	@ApiPropertyOptional({ example: "wallet", description: "Icon identifier" })
+	@IsOptional()
+	@IsString()
+	icon?: string;
+
 	@ApiProperty({
 		enum: BudgetKind,
 		example: BudgetKind.RECURRING,
@@ -119,6 +129,24 @@ export class UpdateBudgetDto {
 	@IsNotEmpty()
 	@MaxLength(100)
 	name?: string;
+
+	@ApiPropertyOptional({
+		example: "#0d9488",
+		nullable: true,
+		description: "UI color hex/oklch. Pass null to clear.",
+	})
+	@IsOptional()
+	@IsString()
+	color?: string | null;
+
+	@ApiPropertyOptional({
+		example: "wallet",
+		nullable: true,
+		description: "Icon identifier. Pass null to clear.",
+	})
+	@IsOptional()
+	@IsString()
+	icon?: string | null;
 
 	@ApiPropertyOptional({
 		enum: BudgetKind,
@@ -290,6 +318,12 @@ export class BudgetResponseDto {
 	@ApiProperty({ example: "Base", description: "Budget name" })
 	name!: string;
 
+	@ApiPropertyOptional({ example: "#0d9488", description: "UI color" })
+	color!: string | null;
+
+	@ApiPropertyOptional({ example: "wallet", description: "Icon identifier" })
+	icon!: string | null;
+
 	@ApiProperty({ enum: BudgetKind, example: BudgetKind.RECURRING, description: "Budget kind" })
 	kind!: BudgetKind;
 
@@ -411,6 +445,12 @@ export class BudgetProgressDto {
 
 	@ApiProperty({ example: "Base", description: "Budget name" })
 	name!: string;
+
+	@ApiPropertyOptional({ example: "#0d9488", description: "UI color" })
+	color!: string | null;
+
+	@ApiPropertyOptional({ example: "wallet", description: "Icon identifier" })
+	icon!: string | null;
 
 	@ApiProperty({ enum: BudgetKind, example: BudgetKind.RECURRING, description: "Budget kind" })
 	kind!: BudgetKind;

@@ -206,6 +206,8 @@ export class DashboardService {
 			.map((p) => ({
 				id: p.id,
 				name: p.name,
+				color: p.color,
+				icon: p.icon,
 				kind: p.kind,
 				period: p.period,
 				periodStart: p.periodStart.toISOString(),

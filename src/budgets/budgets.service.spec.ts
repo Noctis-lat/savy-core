@@ -137,6 +137,24 @@ describe("BudgetsService", () => {
 			expect(call.data.items.create).toEqual([{ categoryId: "c1", amount: 5000 }]);
 		});
 
+		it("persists color and icon when provided, null otherwise", async () => {
+			prisma.category.findMany.mockResolvedValue([{ id: "c1", type: "EXPENSE" }]);
+			prisma.budget.create.mockResolvedValue({ id: "b1", items: [] });
+
+			await service.create(
+				"p1",
+				plainToInstance(CreateBudgetDto, { ...validDto, color: "#0d9488", icon: "wallet" }),
+			);
+			await service.create("p1", validDto);
+
+			const withStyle = prisma.budget.create.mock.calls[0][0];
+			expect(withStyle.data.color).toBe("#0d9488");
+			expect(withStyle.data.icon).toBe("wallet");
+			const withoutStyle = prisma.budget.create.mock.calls[1][0];
+			expect(withoutStyle.data.color).toBeNull();
+			expect(withoutStyle.data.icon).toBeNull();
+		});
+
 		it("throws BadRequestException when RECURRING has no period", async () => {
 			const dto = plainToInstance(CreateBudgetDto, {
 				name: "Bad",
@@ -251,6 +269,31 @@ describe("BudgetsService", () => {
 			const call = prisma.budget.update.mock.calls[0][0];
 			expect(call.data.name).toBe("New Name");
 			expect(call.data.items).toBeUndefined();
+		});
+
+		it("updates color and icon, clears them with null, and leaves them untouched when omitted", async () => {
+			prisma.budget.findFirst.mockResolvedValue({
+				id: "b1",
+				kind: "RECURRING",
+				period: "MONTHLY",
+				startDate: new Date("2026-01-01"),
+				endDate: null,
+				color: "#0d9488",
+				icon: "wallet",
+				items: [],
+			});
+			prisma.budget.update.mockResolvedValue({ id: "b1", items: [] });
+
+			await service.update("b1", "p1", { color: "#f59e0b", icon: "plane" } as UpdateBudgetDto);
+			await service.update("b1", "p1", { color: null, icon: null } as UpdateBudgetDto);
+			await service.update("b1", "p1", { name: "Other" } as UpdateBudgetDto);
+
+			const [set, cleared, untouched] = prisma.budget.update.mock.calls.map((c) => c[0]);
+			expect(set.data).toMatchObject({ color: "#f59e0b", icon: "plane" });
+			expect(cleared.data.color).toBeNull();
+			expect(cleared.data.icon).toBeNull();
+			expect("color" in untouched.data).toBe(false);
+			expect("icon" in untouched.data).toBe(false);
 		});
 
 		it("replaces items when dto.items is provided", async () => {
@@ -380,6 +423,8 @@ describe("BudgetsService", () => {
 		return {
 			id: "b1",
 			name: "Test Budget",
+			color: "#0d9488",
+			icon: "wallet",
 			kind: "RECURRING" as const,
 			period: "MONTHLY" as const,
 			startDate: new Date("2026-01-01T00:00:00.000Z"),
@@ -409,6 +454,8 @@ describe("BudgetsService", () => {
 
 			expect(result.id).toBe("b1");
 			expect(result.name).toBe("Test Budget");
+			expect(result.color).toBe("#0d9488");
+			expect(result.icon).toBe("wallet");
 			expect(result.items).toHaveLength(1);
 			expect(result.items[0]).toEqual({
 				categoryId: "c-exp",
@@ -985,5 +1032,42 @@ describe("CreateBudgetDto validation", () => {
 		const itemErrors = errors.find((e) => e.property === "items")?.children?.[0]?.children ?? [];
 		const props = itemErrors.map((e) => e.property);
 		expect(props).toEqual(expect.arrayContaining(["categoryId", "amount"]));
+	});
+
+	it("accepts optional color and icon strings", async () => {
+		const instance = plainToInstance(CreateBudgetDto, {
+			...base,
+			color: "#0d9488",
+			icon: "wallet",
+			items: [{ categoryId: "a1b2c3d4-e5f6-4890-abcd-ef1234567890", amount: 100 }],
+		});
+		const errors = await validate(instance, { whitelist: true, forbidNonWhitelisted: true });
+		expect(errors).toHaveLength(0);
+	});
+
+	it("rejects non-string color and icon", async () => {
+		const instance = plainToInstance(CreateBudgetDto, {
+			...base,
+			color: 123,
+			icon: true,
+			items: [{ categoryId: "a1b2c3d4-e5f6-4890-abcd-ef1234567890", amount: 100 }],
+		});
+		const errors = await validate(instance);
+		const props = errors.map((e) => e.property);
+		expect(props).toEqual(expect.arrayContaining(["color", "icon"]));
+	});
+});
+
+describe("UpdateBudgetDto validation", () => {
+	it("accepts null color and icon to clear them", async () => {
+		const instance = plainToInstance(UpdateBudgetDto, { color: null, icon: null });
+		const errors = await validate(instance, { whitelist: true, forbidNonWhitelisted: true });
+		expect(errors).toHaveLength(0);
+	});
+
+	it("rejects non-string color", async () => {
+		const instance = plainToInstance(UpdateBudgetDto, { color: 42 });
+		const errors = await validate(instance);
+		expect(errors.some((e) => e.property === "color")).toBe(true);
 	});
 });

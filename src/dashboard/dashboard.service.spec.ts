@@ -86,6 +86,8 @@ describe("DashboardService", () => {
 		const makeProgress = (id: string, totalPercentage: number) => ({
 			id,
 			name: `Budget ${id}`,
+			color: "#0d9488",
+			icon: "wallet",
 			kind: "RECURRING",
 			period: "MONTHLY",
 			periodStart: new Date("2026-10-01T00:00:00Z"),
@@ -135,6 +137,8 @@ describe("DashboardService", () => {
 		expect(summary.activeBudgets[2]).toEqual({
 			id: "b-1",
 			name: "Budget b-1",
+			color: "#0d9488",
+			icon: "wallet",
 			kind: "RECURRING",
 			period: "MONTHLY",
 			periodStart: "2026-10-01T00:00:00.000Z",
