@@ -4,6 +4,8 @@ import {
 	type BudgetPeriod,
 	type CategoryType,
 	Prisma,
+	type Transaction,
+	type TransactionType,
 } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import type { BudgetItemInputDto, CreateBudgetDto, UpdateBudgetDto } from "./dto/budget.dto";
@@ -106,6 +108,27 @@ export interface BudgetsListResult {
 	page: number;
 	perPage: number;
 	total: number;
+	totalPages: number;
+}
+
+export interface BudgetTransactionFilters {
+	type?: TransactionType;
+	categoryId?: string;
+	search?: string;
+	from?: Date;
+	to?: Date;
+	page?: number;
+	limit?: number;
+	sortBy?: "date" | "amount" | "createdAt";
+	order?: "asc" | "desc";
+}
+
+/** Same shape as `AccountsService.findTransactions`. */
+export interface BudgetTransactionsResult {
+	data: Transaction[];
+	total: number;
+	page: number;
+	limit: number;
 	totalPages: number;
 }
 
@@ -239,6 +262,65 @@ export class BudgetsService {
 			where: { id },
 			data: { isActive: false },
 		});
+	}
+
+	// ─── Transactions ──────────────────────────────────────────────────
+
+	/**
+	 * Transactions counted by the budget's items, using the same rules as progress.
+	 * Range defaults to the current period; `from`/`to` override each bound.
+	 * A `categoryId` outside the budget yields an empty page.
+	 */
+	async findTransactions(
+		id: string,
+		profileId: string,
+		filters: BudgetTransactionFilters,
+	): Promise<BudgetTransactionsResult> {
+		const budget = await this.findOne(id, profileId);
+
+		const page = filters.page ?? 1;
+		const limit = Math.min(filters.limit ?? 50, 100);
+		const skip = (page - 1) * limit;
+		const sortBy = filters.sortBy ?? "date";
+		const order = filters.order ?? "desc";
+
+		const items = filters.categoryId
+			? budget.items.filter((item) => item.categoryId === filters.categoryId)
+			: budget.items;
+		if (items.length === 0) {
+			return { data: [], total: 0, page, limit, totalPages: 0 };
+		}
+
+		const range = this.currentRange(budget, new Date());
+		const expenseIds = items.filter((i) => i.category.type === "EXPENSE").map((i) => i.categoryId);
+		const incomeIds = items.filter((i) => i.category.type === "INCOME").map((i) => i.categoryId);
+
+		const where: Prisma.TransactionWhereInput = {
+			account: { profileId },
+			date: { gte: filters.from ?? range.start, lte: filters.to ?? range.end },
+			OR: [
+				...(expenseIds.length > 0
+					? [expenseWhere({ in: expenseIds }), installmentWhere({ in: expenseIds })]
+					: []),
+				...(incomeIds.length > 0 ? [incomeWhere({ in: incomeIds })] : []),
+			],
+			...(filters.type ? { type: filters.type } : {}),
+			...(filters.search ? { description: { contains: filters.search, mode: "insensitive" } } : {}),
+		};
+
+		const [data, total] = await Promise.all([
+			this.prisma.transaction.findMany({
+				where,
+				skip,
+				take: limit,
+				orderBy: { [sortBy]: order },
+			}),
+			this.prisma.transaction.count({ where }),
+		]);
+
+		const totalPages = limit > 0 ? Math.ceil(total / limit) : 0;
+
+		return { data, total, page, limit, totalPages };
 	}
 
 	// ─── Progress ──────────────────────────────────────────────────────
@@ -426,7 +508,7 @@ export class BudgetsService {
 				if (item.category.type === "INCOME") {
 					const income = await this.prisma.transaction.aggregate({
 						_sum: { amount: true },
-						where: { ...baseWhere, type: "INCOME", categoryId: item.categoryId },
+						where: { ...baseWhere, ...incomeWhere(item.categoryId) },
 					});
 					return { item, planned, spent: toDecimal(income._sum.amount) };
 				}
@@ -434,20 +516,11 @@ export class BudgetsService {
 				const [expense, installments] = await Promise.all([
 					this.prisma.transaction.aggregate({
 						_sum: { amount: true },
-						where: {
-							...baseWhere,
-							type: "EXPENSE",
-							categoryId: item.categoryId,
-							installmentPlan: null,
-						},
+						where: { ...baseWhere, ...expenseWhere(item.categoryId) },
 					}),
 					this.prisma.transaction.aggregate({
 						_sum: { amount: true },
-						where: {
-							...baseWhere,
-							type: "INSTALLMENT",
-							billedPlan: { transaction: { categoryId: item.categoryId } },
-						},
+						where: { ...baseWhere, ...installmentWhere(item.categoryId) },
 					}),
 				]);
 
@@ -576,6 +649,25 @@ export class BudgetsService {
 	private toItemCreateData(items: BudgetItemInputDto[]) {
 		return items.map((item) => ({ categoryId: item.categoryId, amount: item.amount }));
 	}
+}
+
+// ─── Budget transaction rules (shared by progress and the transactions list) ──
+
+type CategoryIdFilter = string | Prisma.StringFilter;
+
+/** Direct EXPENSE tx in the category, excluding installment-plan (MSI) purchases. */
+function expenseWhere(categoryId: CategoryIdFilter): Prisma.TransactionWhereInput {
+	return { type: "EXPENSE", categoryId, installmentPlan: null };
+}
+
+/** INSTALLMENT tx whose plan's purchase transaction is in the category. */
+function installmentWhere(categoryId: CategoryIdFilter): Prisma.TransactionWhereInput {
+	return { type: "INSTALLMENT", billedPlan: { transaction: { categoryId } } };
+}
+
+/** INCOME tx in the category. */
+function incomeWhere(categoryId: CategoryIdFilter): Prisma.TransactionWhereInput {
+	return { type: "INCOME", categoryId };
 }
 
 function toDecimal(value: Decimal | null): Decimal {

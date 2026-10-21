@@ -1,5 +1,12 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
-import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import {
+	ApiBearerAuth,
+	ApiExtraModels,
+	ApiOperation,
+	ApiResponse,
+	ApiTags,
+	getSchemaPath,
+} from "@nestjs/swagger";
 import { CurrentUser } from "../auth/current-user.decorator";
 import {
 	ApiArraySuccessResponse,
@@ -7,7 +14,9 @@ import {
 	ApiMessageResponse,
 	ApiSuccessResponse,
 } from "../common/decorators/api-response.decorator";
+import { PaginationMetaDto } from "../common/dto/pagination.dto";
 import type { Profile } from "../generated/prisma/client";
+import { TransactionResponseDto } from "../transactions/dto/transaction.dto";
 import { BudgetsService } from "./budgets.service";
 import {
 	BudgetHistoryDto,
@@ -18,6 +27,7 @@ import {
 	QueryBudgetsDto,
 	UpdateBudgetDto,
 } from "./dto/budget.dto";
+import { QueryBudgetTransactionsDto } from "./dto/budget-transactions.dto";
 
 @ApiTags("budgets")
 @ApiBearerAuth()
@@ -79,6 +89,53 @@ export class BudgetsController {
 	@ApiErrorResponse(500, "Internal server error")
 	async getHistory(@Param("id") id: string, @CurrentUser() profile: Profile) {
 		return this.budgetsService.getHistory(id, profile.id);
+	}
+
+	@Get(":id/transactions")
+	@ApiOperation({
+		summary: "List transactions counted by a budget's categories (defaults to the current period)",
+	})
+	@ApiExtraModels(TransactionResponseDto, PaginationMetaDto)
+	@ApiResponse({
+		status: 200,
+		description: "Returns paginated transactions for the budget's categories",
+		schema: {
+			type: "object",
+			properties: {
+				success: { type: "boolean", example: true },
+				data: {
+					type: "object",
+					properties: {
+						data: {
+							type: "array",
+							items: { $ref: getSchemaPath(TransactionResponseDto) },
+						},
+						meta: { $ref: getSchemaPath(PaginationMetaDto) },
+					},
+				},
+				message: { type: "string", nullable: true },
+			},
+		},
+	})
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Budget not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async findTransactions(
+		@Param("id") id: string,
+		@CurrentUser() profile: Profile,
+		@Query() query: QueryBudgetTransactionsDto,
+	) {
+		return this.budgetsService.findTransactions(id, profile.id, {
+			type: query.type,
+			categoryId: query.categoryId,
+			search: query.search,
+			from: query.from ? new Date(query.from) : undefined,
+			to: query.to ? new Date(query.to) : undefined,
+			page: query.page,
+			limit: query.limit,
+			sortBy: query.sortBy,
+			order: query.order,
+		});
 	}
 
 	@Post()

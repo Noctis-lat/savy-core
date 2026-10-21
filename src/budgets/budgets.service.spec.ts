@@ -44,6 +44,8 @@ describe("BudgetsService", () => {
 			},
 			transaction: {
 				aggregate: jest.fn().mockResolvedValue({ _sum: { amount: null } }),
+				findMany: jest.fn().mockResolvedValue([]),
+				count: jest.fn().mockResolvedValue(0),
 			},
 			budgetPeriodSnapshot: {
 				findUnique: jest.fn().mockResolvedValue(null),
@@ -902,6 +904,173 @@ describe("BudgetsService", () => {
 
 			expect(prisma.budgetPeriodSnapshot.findUnique).not.toHaveBeenCalled();
 			expect(prisma.budgetPeriodSnapshot.create).not.toHaveBeenCalled();
+		});
+	});
+
+	// ─── findTransactions ──────────────────────────────────────────────
+
+	describe("findTransactions", () => {
+		const NOW = new Date("2026-03-15T12:00:00.000Z");
+
+		function incomeItem() {
+			return expenseItem({
+				id: "item-2",
+				categoryId: "c-inc",
+				amount: decimal("20000"),
+				category: { id: "c-inc", name: "Salary", type: "INCOME" },
+			});
+		}
+
+		beforeEach(() => {
+			jest.useFakeTimers({ now: NOW });
+		});
+
+		afterEach(() => {
+			jest.useRealTimers();
+		});
+
+		it("throws NotFoundException for a budget not owned by the user", async () => {
+			prisma.budget.findFirst.mockResolvedValue(null);
+			await expect(service.findTransactions("b1", "p2", {})).rejects.toThrow(NotFoundException);
+			expect(prisma.budget.findFirst.mock.calls[0][0].where).toEqual({ id: "b1", profileId: "p2" });
+			expect(prisma.transaction.findMany).not.toHaveBeenCalled();
+		});
+
+		it("builds one OR where with EXPENSE (no MSI purchases), INSTALLMENT and INCOME branches", async () => {
+			prisma.budget.findFirst.mockResolvedValue(
+				mockBudget({ items: [expenseItem(), incomeItem()] }),
+			);
+
+			await service.findTransactions("b1", "p1", {});
+
+			const where = prisma.transaction.findMany.mock.calls[0][0].where;
+			expect(where.account).toEqual({ profileId: "p1" });
+			expect(where.OR).toEqual([
+				{ type: "EXPENSE", categoryId: { in: ["c-exp"] }, installmentPlan: null },
+				{ type: "INSTALLMENT", billedPlan: { transaction: { categoryId: { in: ["c-exp"] } } } },
+				{ type: "INCOME", categoryId: { in: ["c-inc"] } },
+			]);
+			expect(where.type).toBeUndefined();
+			expect(prisma.transaction.count).toHaveBeenCalledWith({ where });
+			expect(prisma.transaction.findMany).toHaveBeenCalledTimes(1);
+			expect(prisma.transaction.count).toHaveBeenCalledTimes(1);
+		});
+
+		it("defaults the date range to the budget's current period (matches progress)", async () => {
+			prisma.budget.findFirst.mockResolvedValue(mockBudget());
+			prisma.budgetPeriodSnapshot.findUnique.mockResolvedValue({ id: "existing" });
+
+			await service.findTransactions("b1", "p1", {});
+			const progress = await service.getProgress("b1", "p1");
+
+			const where = prisma.transaction.findMany.mock.calls[0][0].where;
+			expect(where.date).toEqual({ gte: progress.periodStart, lte: progress.periodEnd });
+			expect(where.date.gte).toEqual(new Date("2026-03-01T00:00:00.000Z"));
+		});
+
+		it("lets from and to override each bound independently", async () => {
+			prisma.budget.findFirst.mockResolvedValue(mockBudget());
+			const from = new Date("2026-02-10T00:00:00.000Z");
+			const to = new Date("2026-03-05T00:00:00.000Z");
+
+			await service.findTransactions("b1", "p1", {});
+			await service.findTransactions("b1", "p1", { from });
+			await service.findTransactions("b1", "p1", { to });
+			await service.findTransactions("b1", "p1", { from, to });
+
+			const [defaults, onlyFrom, onlyTo, both] = prisma.transaction.findMany.mock.calls.map(
+				(call) => call[0].where.date,
+			);
+			expect(onlyFrom).toEqual({ gte: from, lte: defaults.lte });
+			expect(onlyTo).toEqual({ gte: defaults.gte, lte: to });
+			expect(both).toEqual({ gte: from, lte: to });
+		});
+
+		it("returns an empty page without querying when categoryId is not in the budget", async () => {
+			prisma.budget.findFirst.mockResolvedValue(mockBudget());
+
+			const result = await service.findTransactions("b1", "p1", { categoryId: "other" });
+
+			expect(result).toEqual({ data: [], total: 0, page: 1, limit: 50, totalPages: 0 });
+			expect(prisma.transaction.findMany).not.toHaveBeenCalled();
+			expect(prisma.transaction.count).not.toHaveBeenCalled();
+		});
+
+		it("narrows to an EXPENSE categoryId while keeping its installments", async () => {
+			prisma.budget.findFirst.mockResolvedValue(
+				mockBudget({ items: [expenseItem(), incomeItem()] }),
+			);
+
+			await service.findTransactions("b1", "p1", { categoryId: "c-exp", type: "INSTALLMENT" });
+
+			const where = prisma.transaction.findMany.mock.calls[0][0].where;
+			expect(where.OR).toEqual([
+				{ type: "EXPENSE", categoryId: { in: ["c-exp"] }, installmentPlan: null },
+				{ type: "INSTALLMENT", billedPlan: { transaction: { categoryId: { in: ["c-exp"] } } } },
+			]);
+			expect(where.type).toBe("INSTALLMENT");
+		});
+
+		it("applies case-insensitive description search", async () => {
+			prisma.budget.findFirst.mockResolvedValue(mockBudget());
+
+			await service.findTransactions("b1", "p1", { search: "super" });
+
+			const where = prisma.transaction.findMany.mock.calls[0][0].where;
+			expect(where.description).toEqual({ contains: "super", mode: "insensitive" });
+		});
+
+		it("paginates, sorts and returns accounts-style meta", async () => {
+			prisma.budget.findFirst.mockResolvedValue(mockBudget());
+			prisma.transaction.findMany.mockResolvedValue([{ id: "t1" }]);
+			prisma.transaction.count.mockResolvedValue(45);
+
+			const result = await service.findTransactions("b1", "p1", {
+				page: 3,
+				limit: 20,
+				sortBy: "amount",
+				order: "asc",
+			});
+
+			const call = prisma.transaction.findMany.mock.calls[0][0];
+			expect(call.skip).toBe(40);
+			expect(call.take).toBe(20);
+			expect(call.orderBy).toEqual({ amount: "asc" });
+			expect(result).toEqual({
+				data: [{ id: "t1" }],
+				total: 45,
+				page: 3,
+				limit: 20,
+				totalPages: 3,
+			});
+		});
+
+		it("caps limit at 100 and defaults to date desc", async () => {
+			prisma.budget.findFirst.mockResolvedValue(mockBudget());
+
+			const result = await service.findTransactions("b1", "p1", { limit: 500 });
+
+			const call = prisma.transaction.findMany.mock.calls[0][0];
+			expect(call.take).toBe(100);
+			expect(call.orderBy).toEqual({ date: "desc" });
+			expect(result.limit).toBe(100);
+		});
+
+		it("returns an empty page without error for a budget with no items", async () => {
+			prisma.budget.findFirst.mockResolvedValue(mockBudget({ items: [] }));
+
+			const result = await service.findTransactions("b1", "p1", {});
+
+			expect(result).toEqual({ data: [], total: 0, page: 1, limit: 50, totalPages: 0 });
+			expect(prisma.transaction.findMany).not.toHaveBeenCalled();
+		});
+
+		it("allows inactive budgets", async () => {
+			prisma.budget.findFirst.mockResolvedValue(mockBudget({ isActive: false }));
+
+			await service.findTransactions("b1", "p1", {});
+
+			expect(prisma.transaction.findMany).toHaveBeenCalledTimes(1);
 		});
 	});
 
