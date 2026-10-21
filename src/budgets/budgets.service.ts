@@ -81,14 +81,24 @@ export interface BudgetFilters {
 	perPage?: number;
 }
 
-/** Actual (registered) totals across all budgets matching the list filters. */
+/** Planned totals across all budgets matching the list filters. */
 export interface BudgetsInfo {
 	totalExpenses: number;
 	totalIncomes: number;
 }
 
+/**
+ * A listed budget with EXPENSE-only progress for its current period.
+ * INCOME items are ignored for these fields.
+ */
+export type BudgetListItem = BudgetWithItems & {
+	totalExpenses: number;
+	periodExpenses: number;
+	percentage: number;
+};
+
 export interface BudgetsListResult {
-	budgets: BudgetWithItems[];
+	budgets: BudgetListItem[];
 	info: BudgetsInfo;
 	page: number;
 	perPage: number;
@@ -123,7 +133,8 @@ export class BudgetsService {
 			...(filters?.period ? { period: filters.period } : {}),
 		};
 
-		const [budgets, total, allMatching] = await Promise.all([
+		const now = new Date();
+		const [budgets, total, info] = await Promise.all([
 			this.prisma.budget.findMany({
 				where,
 				orderBy: { [sortBy]: order },
@@ -132,12 +143,14 @@ export class BudgetsService {
 				include: BUDGET_ITEMS_INCLUDE,
 			}),
 			this.prisma.budget.count({ where }),
-			this.prisma.budget.findMany({ where, include: BUDGET_ITEMS_INCLUDE }),
+			this.computePlannedInfo(where),
 		]);
 
 		return {
-			budgets,
-			info: await this.computeListInfo(allMatching, profileId, new Date()),
+			budgets: await Promise.all(
+				budgets.map((budget) => this.withExpenseProgress(budget, profileId, now)),
+			),
+			info,
 			page,
 			perPage,
 			total,
@@ -305,34 +318,50 @@ export class BudgetsService {
 	}
 
 	/**
-	 * Actual EXPENSE/INCOME totals for the current period of every given budget.
-	 * Read-only: never creates snapshots. A category present in several budgets is
-	 * counted once per budget — each budget is an independent view, so duplication is intended.
+	 * Planned EXPENSE/INCOME item amounts summed across every budget matching `where`.
+	 * DB aggregates only — no transaction queries.
 	 */
-	private async computeListInfo(
-		budgets: BudgetWithItems[],
-		profileId: string,
-		now: Date,
-	): Promise<BudgetsInfo> {
-		const spentPerBudget = await Promise.all(
-			budgets.map((budget) =>
-				this.computeItemsSpent(budget.items, profileId, this.currentRange(budget, now)),
-			),
-		);
-
-		let totalExpenses = new Decimal(0);
-		let totalIncomes = new Decimal(0);
-		for (const { item, spent } of spentPerBudget.flat()) {
-			if (item.category.type === "EXPENSE") {
-				totalExpenses = totalExpenses.add(spent);
-			} else if (item.category.type === "INCOME") {
-				totalIncomes = totalIncomes.add(spent);
-			}
-		}
+	private async computePlannedInfo(where: Prisma.BudgetWhereInput): Promise<BudgetsInfo> {
+		const [expenses, incomes] = await Promise.all([
+			this.prisma.budgetItem.aggregate({
+				_sum: { amount: true },
+				where: { budget: where, category: { type: "EXPENSE" } },
+			}),
+			this.prisma.budgetItem.aggregate({
+				_sum: { amount: true },
+				where: { budget: where, category: { type: "INCOME" } },
+			}),
+		]);
 
 		return {
+			totalExpenses: toDecimal(expenses._sum.amount).toDecimalPlaces(2).toNumber(),
+			totalIncomes: toDecimal(incomes._sum.amount).toDecimalPlaces(2).toNumber(),
+		};
+	}
+
+	/**
+	 * Planned vs actual for the budget's EXPENSE items in its current period.
+	 * Read-only: never creates snapshots.
+	 */
+	private async withExpenseProgress(
+		budget: BudgetWithItems,
+		profileId: string,
+		now: Date,
+	): Promise<BudgetListItem> {
+		const expenseItems = budget.items.filter((item) => item.category.type === "EXPENSE");
+		const spent =
+			expenseItems.length > 0
+				? await this.computeItemsSpent(expenseItems, profileId, this.currentRange(budget, now))
+				: [];
+
+		const totalExpenses = spent.reduce((sum, s) => sum.add(s.planned), new Decimal(0));
+		const periodExpenses = spent.reduce((sum, s) => sum.add(s.spent), new Decimal(0));
+
+		return {
+			...budget,
 			totalExpenses: totalExpenses.toDecimalPlaces(2).toNumber(),
-			totalIncomes: totalIncomes.toDecimalPlaces(2).toNumber(),
+			periodExpenses: periodExpenses.toDecimalPlaces(2).toNumber(),
+			percentage: percentage(periodExpenses, totalExpenses),
 		};
 	}
 

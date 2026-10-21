@@ -320,29 +320,52 @@ export class BudgetResponseDto {
 	updatedAt!: Date;
 }
 
+export class BudgetListItemDto extends BudgetResponseDto {
+	@ApiProperty({
+		example: 1000,
+		description: "Planned total of the budget's EXPENSE items (INCOME items are ignored)",
+	})
+	totalExpenses!: number;
+
+	@ApiProperty({
+		example: 800,
+		description:
+			"Actual spent in the budget's current period across its EXPENSE item categories (includes installments)",
+	})
+	periodExpenses!: number;
+
+	@ApiProperty({
+		example: 80,
+		description:
+			"round(periodExpenses / totalExpenses * 100); can exceed 100; 0 when totalExpenses is 0",
+	})
+	percentage!: number;
+}
+
 export class BudgetsInfoDto {
 	@ApiProperty({
 		example: 3200,
-		description:
-			"Actual spent on EXPENSE items in the current period, summed across all filtered budgets",
+		description: "Planned amount of EXPENSE items, summed across all filtered budgets",
 	})
 	totalExpenses!: number;
 
 	@ApiProperty({
 		example: 15000,
-		description:
-			"Actual received on INCOME items in the current period, summed across all filtered budgets",
+		description: "Planned amount of INCOME items, summed across all filtered budgets",
 	})
 	totalIncomes!: number;
 }
 
 export class BudgetsListResponseDto {
-	@ApiProperty({ type: () => [BudgetResponseDto], description: "Budgets in the current page" })
-	budgets!: BudgetResponseDto[];
+	@ApiProperty({
+		type: () => [BudgetListItemDto],
+		description: "Budgets in the current page, with current-period expense progress",
+	})
+	budgets!: BudgetListItemDto[];
 
 	@ApiProperty({
 		type: () => BudgetsInfoDto,
-		description: "Actual income/expense totals across all filtered budgets (not just this page)",
+		description: "Planned income/expense totals across all filtered budgets (not just this page)",
 	})
 	info!: BudgetsInfoDto;
 

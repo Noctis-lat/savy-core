@@ -27,12 +27,13 @@ export class BudgetsController {
 
 	@Get()
 	@ApiOperation({
-		summary: "List budgets for the current user with pagination and actual income/expense info",
+		summary:
+			"List budgets with pagination, per-budget expense progress and planned income/expense info",
 	})
 	@ApiSuccessResponse(
 		200,
 		BudgetsListResponseDto,
-		"Returns paginated budgets with items and actual totals across all filtered budgets",
+		"Returns paginated budgets with expense progress and planned totals across filtered budgets",
 	)
 	@ApiErrorResponse(400, "Invalid query parameters")
 	@ApiErrorResponse(401, "Unauthorized")

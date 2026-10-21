@@ -37,6 +37,7 @@ describe("BudgetsService", () => {
 			},
 			budgetItem: {
 				deleteMany: jest.fn(),
+				aggregate: jest.fn().mockResolvedValue({ _sum: { amount: null } }),
 			},
 			category: {
 				findMany: jest.fn(),
@@ -704,38 +705,130 @@ describe("BudgetsService", () => {
 			});
 		});
 
-		it("sums actual EXPENSE vs INCOME spent across all filtered budgets, not just the page", async () => {
-			const pageBudget = mockBudget({ id: "b1", items: [expenseItem()] });
-			const otherBudget = mockBudget({
-				id: "b2",
-				items: [expenseItem({ id: "item-2" }), incomeItem()],
+		it("sums planned EXPENSE vs INCOME item amounts across all filtered budgets", async () => {
+			prisma.budgetItem.aggregate.mockImplementation(
+				(args: { where: { category: { type: string } } }) =>
+					Promise.resolve({
+						_sum: {
+							amount: decimal(args.where.category.type === "EXPENSE" ? "1500.555" : "20000"),
+						},
+					}),
+			);
+
+			const result = await service.findAllByProfile("p1", { perPage: 1, kind: "RECURRING" });
+
+			expect(result.info).toEqual({ totalExpenses: 1500.56, totalIncomes: 20000 });
+			expect(prisma.budgetItem.aggregate).toHaveBeenCalledTimes(2);
+			const calls = prisma.budgetItem.aggregate.mock.calls.map((c) => c[0]);
+			const filteredWhere = { profileId: "p1", isActive: true, kind: "RECURRING" };
+			expect(calls.map((c) => c.where)).toEqual(
+				expect.arrayContaining([
+					{ budget: filteredWhere, category: { type: "EXPENSE" } },
+					{ budget: filteredWhere, category: { type: "INCOME" } },
+				]),
+			);
+			// Aggregate is not paginated → covers every filtered budget, not just the page
+			for (const call of calls) {
+				expect(call.skip).toBeUndefined();
+				expect(call.take).toBeUndefined();
+			}
+			// Info never queries transactions
+			expect(prisma.transaction.aggregate).not.toHaveBeenCalled();
+			// Only the paginated page query loads budgets
+			expect(prisma.budget.findMany).toHaveBeenCalledTimes(1);
+		});
+
+		it("returns zero info when no budget items match", async () => {
+			const result = await service.findAllByProfile("p1", {});
+			expect(result.info).toEqual({ totalExpenses: 0, totalIncomes: 0 });
+		});
+
+		it("adds per-budget totalExpenses ignoring INCOME items", async () => {
+			prisma.budget.findMany.mockResolvedValue([
+				mockBudget({
+					items: [
+						expenseItem({ amount: decimal("600") }),
+						expenseItem({
+							id: "item-2",
+							categoryId: "c-exp2",
+							amount: decimal("400"),
+							category: { id: "c-exp2", name: "Fuel", type: "EXPENSE" },
+						}),
+						incomeItem({ amount: decimal("9000") }),
+					],
+				}),
+			]);
+			prisma.budget.count.mockResolvedValue(1);
+
+			const result = await service.findAllByProfile("p1", {});
+
+			expect(result.budgets[0].totalExpenses).toBe(1000);
+			expect(result.budgets[0].items).toHaveLength(3);
+		});
+
+		it("computes periodExpenses from EXPENSE items only, including installments", async () => {
+			prisma.budget.findMany.mockResolvedValue([
+				mockBudget({ items: [expenseItem({ amount: decimal("1000") }), incomeItem()] }),
+			]);
+			prisma.budget.count.mockResolvedValue(1);
+			prisma.transaction.aggregate.mockImplementation((args: { where: { type: string } }) => {
+				const amounts: Record<string, string> = {
+					EXPENSE: "500.10",
+					INSTALLMENT: "299.90",
+					INCOME: "9999",
+				};
+				return Promise.resolve({ _sum: { amount: decimal(amounts[args.where.type]) } });
 			});
-			// Page query returns only b1; the info query sees b1 and b2
-			prisma.budget.findMany.mockImplementation((args: { skip?: number }) =>
-				Promise.resolve(args.skip === undefined ? [pageBudget, otherBudget] : [pageBudget]),
-			);
-			prisma.budget.count.mockResolvedValue(2);
-			prisma.transaction.aggregate.mockImplementation(
-				(args: { where: { type: string; categoryId?: string } }) => {
-					const amounts: Record<string, string> = {
-						EXPENSE: "100.10",
-						INSTALLMENT: "50.05",
-						INCOME: "2000.005",
-					};
-					return Promise.resolve({ _sum: { amount: decimal(amounts[args.where.type]) } });
-				},
-			);
+
+			const result = await service.findAllByProfile("p1", {});
+
+			const types = prisma.transaction.aggregate.mock.calls.map((c) => c[0].where.type);
+			expect(types.sort()).toEqual(["EXPENSE", "INSTALLMENT"]);
+			const installmentCall = prisma.transaction.aggregate.mock.calls.find(
+				(c) => c[0].where.type === "INSTALLMENT",
+			)?.[0];
+			expect(installmentCall.where.billedPlan).toEqual({ transaction: { categoryId: "c-exp" } });
+			expect(installmentCall.where.account).toEqual({ profileId: "p1" });
+			expect(result.budgets[0].periodExpenses).toBe(800);
+			expect(result.budgets[0].percentage).toBe(80);
+		});
+
+		it("allows percentage above 100", async () => {
+			prisma.budget.findMany.mockResolvedValue([
+				mockBudget({ items: [expenseItem({ amount: decimal("1000") })] }),
+			]);
+			prisma.transaction.aggregate
+				.mockResolvedValueOnce({ _sum: { amount: decimal("1500") } })
+				.mockResolvedValueOnce({ _sum: { amount: null } });
+
+			const result = await service.findAllByProfile("p1", {});
+
+			expect(result.budgets[0].periodExpenses).toBe(1500);
+			expect(result.budgets[0].percentage).toBe(150);
+		});
+
+		it("returns zeros without querying transactions when a budget has no EXPENSE items", async () => {
+			prisma.budget.findMany.mockResolvedValue([mockBudget({ items: [incomeItem()] })]);
+
+			const result = await service.findAllByProfile("p1", {});
+
+			expect(result.budgets[0]).toMatchObject({
+				totalExpenses: 0,
+				periodExpenses: 0,
+				percentage: 0,
+			});
+			expect(prisma.transaction.aggregate).not.toHaveBeenCalled();
+		});
+
+		it("computes spent only for the budgets in the current page", async () => {
+			prisma.budget.findMany.mockResolvedValue([mockBudget({ id: "b1" })]);
+			prisma.budget.count.mockResolvedValue(25);
 
 			const result = await service.findAllByProfile("p1", { perPage: 1 });
 
-			expect(result.budgets).toEqual([pageBudget]);
-			// Same EXPENSE category in two budgets counts once per budget: 2 × (100.10 + 50.05)
-			expect(result.info.totalExpenses).toBe(300.3);
-			expect(result.info.totalIncomes).toBe(2000.01);
-			const infoCall = prisma.budget.findMany.mock.calls[1][0];
-			expect(infoCall.skip).toBeUndefined();
-			expect(infoCall.take).toBeUndefined();
-			expect(infoCall.where).toEqual({ profileId: "p1", isActive: true });
+			expect(result.budgets).toHaveLength(1);
+			// One EXPENSE item on the single page budget → EXPENSE + INSTALLMENT aggregates
+			expect(prisma.transaction.aggregate).toHaveBeenCalledTimes(2);
 		});
 
 		it("does not create or look up snapshots while listing", async () => {
