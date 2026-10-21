@@ -164,14 +164,34 @@ export class BudgetsController {
 		return this.budgetsService.update(id, profile.id, dto);
 	}
 
+	@Patch(":id/deactivate")
+	@ApiOperation({ summary: "Deactivate a budget (reversible)" })
+	@ApiSuccessResponse(200, BudgetResponseDto, "Returns the deactivated budget")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Budget not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async deactivate(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.budgetsService.deactivate(id, profile.id);
+	}
+
+	@Patch(":id/activate")
+	@ApiOperation({ summary: "Activate a previously deactivated budget" })
+	@ApiSuccessResponse(200, BudgetResponseDto, "Returns the activated budget")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Budget not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async activate(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.budgetsService.activate(id, profile.id);
+	}
+
 	@Delete(":id")
-	@ApiOperation({ summary: "Soft-delete a budget (deactivate)" })
-	@ApiMessageResponse(200, "Budget deactivated")
+	@ApiOperation({ summary: "Permanently delete a budget" })
+	@ApiMessageResponse(200, "Budget deleted")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Budget not found")
 	@ApiErrorResponse(500, "Internal server error")
 	async remove(@Param("id") id: string, @CurrentUser() profile: Profile) {
 		await this.budgetsService.remove(id, profile.id);
-		return { message: "Budget deactivated" };
+		return { message: "Budget deleted" };
 	}
 }

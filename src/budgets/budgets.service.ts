@@ -256,11 +256,30 @@ export class BudgetsService {
 		});
 	}
 
+	/** Hard delete. Items and period snapshots cascade via FK; transactions are untouched. */
 	async remove(id: string, profileId: string): Promise<void> {
 		await this.findOne(id, profileId);
-		await this.prisma.budget.update({
+		await this.prisma.budget.delete({ where: { id } });
+	}
+
+	async deactivate(id: string, profileId: string): Promise<BudgetWithItems> {
+		return this.setActive(id, profileId, false);
+	}
+
+	async activate(id: string, profileId: string): Promise<BudgetWithItems> {
+		return this.setActive(id, profileId, true);
+	}
+
+	private async setActive(
+		id: string,
+		profileId: string,
+		isActive: boolean,
+	): Promise<BudgetWithItems> {
+		await this.findOne(id, profileId);
+		return this.prisma.budget.update({
 			where: { id },
-			data: { isActive: false },
+			data: { isActive },
+			include: BUDGET_ITEMS_INCLUDE,
 		});
 	}
 

@@ -34,6 +34,7 @@ describe("BudgetsService", () => {
 				findFirst: jest.fn(),
 				create: jest.fn(),
 				update: jest.fn(),
+				delete: jest.fn(),
 			},
 			budgetItem: {
 				deleteMany: jest.fn(),
@@ -396,14 +397,56 @@ describe("BudgetsService", () => {
 	// ─── remove ────────────────────────────────────────────────────────
 
 	describe("remove", () => {
-		it("soft-deletes by setting isActive false", async () => {
+		it("hard-deletes after the ownership check", async () => {
 			prisma.budget.findFirst.mockResolvedValue({ id: "b1", items: [] });
 			await service.remove("b1", "p1");
-			expect(prisma.budget.update).toHaveBeenCalledWith({
-				where: { id: "b1" },
-				data: { isActive: false },
-			});
+			expect(prisma.budget.findFirst.mock.calls[0][0].where).toEqual({ id: "b1", profileId: "p1" });
+			expect(prisma.budget.delete).toHaveBeenCalledWith({ where: { id: "b1" } });
+			expect(prisma.budget.update).not.toHaveBeenCalled();
+			expect(prisma.budget.findFirst.mock.invocationCallOrder[0]).toBeLessThan(
+				prisma.budget.delete.mock.invocationCallOrder[0],
+			);
 		});
+
+		it("throws NotFoundException and does not delete a foreign budget", async () => {
+			prisma.budget.findFirst.mockResolvedValue(null);
+			await expect(service.remove("b1", "p2")).rejects.toThrow(NotFoundException);
+			expect(prisma.budget.delete).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("deactivate / activate", () => {
+		it.each([
+			["deactivate", false],
+			["activate", true],
+		] as const)(
+			"%s sets isActive %s and returns the budget with items",
+			async (method, isActive) => {
+				prisma.budget.findFirst.mockResolvedValue({ id: "b1", items: [] });
+				const updated = { id: "b1", isActive, items: [] };
+				prisma.budget.update.mockResolvedValue(updated);
+
+				const result = await service[method]("b1", "p1");
+
+				expect(prisma.budget.update).toHaveBeenCalledWith({
+					where: { id: "b1" },
+					data: { isActive },
+					include: {
+						items: { include: { category: { select: { id: true, name: true, type: true } } } },
+					},
+				});
+				expect(result).toBe(updated);
+			},
+		);
+
+		it.each(["deactivate", "activate"] as const)(
+			"%s throws NotFoundException for a foreign budget",
+			async (method) => {
+				prisma.budget.findFirst.mockResolvedValue(null);
+				await expect(service[method]("b1", "p2")).rejects.toThrow(NotFoundException);
+				expect(prisma.budget.update).not.toHaveBeenCalled();
+			},
+		);
 	});
 
 	// ─── getProgress ───────────────────────────────────────────────────
