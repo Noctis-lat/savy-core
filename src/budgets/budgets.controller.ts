@@ -47,6 +47,7 @@ export class BudgetsController {
 			order: query.order,
 			page: query.page,
 			perPage: query.perPage,
+			search: query.search,
 		});
 	}
 

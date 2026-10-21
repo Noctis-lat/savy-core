@@ -270,6 +270,14 @@ export class QueryBudgetsDto {
 	@Min(1)
 	@Max(100)
 	perPage?: number;
+
+	@ApiPropertyOptional({
+		example: "base",
+		description: "Case-insensitive search by budget name (substring match)",
+	})
+	@IsOptional()
+	@IsString()
+	search?: string;
 }
 
 // ─── Response DTOs ─────────────────────────────────────────────────────

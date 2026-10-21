@@ -81,6 +81,7 @@ export interface BudgetFilters {
 	order?: "asc" | "desc";
 	page?: number;
 	perPage?: number;
+	search?: string;
 }
 
 /** Planned totals across all budgets matching the list filters. */
@@ -133,6 +134,7 @@ export class BudgetsService {
 			isActive,
 			...(filters?.kind ? { kind: filters.kind } : {}),
 			...(filters?.period ? { period: filters.period } : {}),
+			...(filters?.search ? { name: { contains: filters.search, mode: "insensitive" } } : {}),
 		};
 
 		const now = new Date();

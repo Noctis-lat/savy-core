@@ -718,6 +718,21 @@ describe("BudgetsService", () => {
 			expect(call.take).toBe(5);
 		});
 
+		it("filters by name with case-insensitive search across list, count and info", async () => {
+			await service.findAllByProfile("p1", { search: "base" });
+			const nameFilter = { contains: "base", mode: "insensitive" };
+			expect(prisma.budget.findMany.mock.calls[0][0].where.name).toEqual(nameFilter);
+			expect(prisma.budget.count.mock.calls[0][0].where.name).toEqual(nameFilter);
+			for (const [args] of prisma.budgetItem.aggregate.mock.calls) {
+				expect(args.where.budget.name).toEqual(nameFilter);
+			}
+		});
+
+		it("does not filter by name when search is empty", async () => {
+			await service.findAllByProfile("p1", { search: "" });
+			expect(prisma.budget.findMany.mock.calls[0][0].where.name).toBeUndefined();
+		});
+
 		it("defaults to page 1 and perPage 10", async () => {
 			const result = await service.findAllByProfile("p1", {});
 			const call = prisma.budget.findMany.mock.calls[0][0];
