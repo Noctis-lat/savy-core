@@ -29,7 +29,7 @@ export class IncomeGenerationService {
 
 	constructor(private readonly prisma: PrismaService) {}
 
-	@Cron(CronExpression.EVERY_DAY_AT_3AM)
+	@Cron(CronExpression.EVERY_HOUR)
 	async handleCron(): Promise<void> {
 		await this.generatePendingIncomes();
 	}

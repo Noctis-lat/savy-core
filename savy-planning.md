@@ -162,7 +162,7 @@ The API now runs on its own always-on server, so `@nestjs/schedule` cron jobs ar
 | BudgetsModule | Multi-category budgets (recurring / one-time) with per-period progress and snapshots |
 | SavingsGoalsModule | Savings goal CRUD |
 | IncomeSourcesModule | Income source CRUD + bulk create |
-| IncomeGenerationModule | Daily cron generating INCOME transactions from income sources |
+| IncomeGenerationModule | Hourly cron generating INCOME transactions from income sources |
 | RecurringExpensesModule | Recurring expense CRUD (subscriptions, services) with soft + hard delete |
 | DashboardModule | Analytics summary |
 
@@ -171,7 +171,7 @@ The API now runs on its own always-on server, so `@nestjs/schedule` cron jobs ar
 | Priority | Feature | Dependencies | Status |
 |---|---|---|---|
 | 1 | RecurringExpense reactive behavior — EXPENSE transaction generation on billing day | RecurringExpensesModule, TransactionsModule | **Pending** |
-| 2 | IncomeSource reactive behavior — INCOME transaction generation on payday | IncomeSourcesModule, TransactionsModule | **Implemented** (daily cron) |
+| 2 | IncomeSource reactive behavior — INCOME transaction generation on payday | IncomeSourcesModule, TransactionsModule | **Implemented** (hourly cron) |
 | 3 | Loan reactive behavior — interest charge + payment processing | LoansModule, TransactionsModule | Pending |
 | 4 | CreditCard reactive behavior — statement generation on cut date | CreditCardsModule, CardStatementsModule | **Implemented behind `CREDIT_CARD_REACTIVE_ENABLED` (default off)** — pending manual E2E and balance-sign decision (see below) |
 | 5 | SavingsGoal reactive behavior — auto progress from account balance | SavingsGoalsModule | Pending |

@@ -83,7 +83,7 @@ src/{domain}/
 | CardStatementsModule | `src/card-statements/` | ✓ Complete | Statement generation: min payment, no-interest payment, interest amount |
 | LoansModule | `src/loans/` | ✓ Complete | Loan tracking |
 | IncomeSourcesModule | `src/income-sources/` | ✓ Complete | Income source CRUD + bulk create, optional INCOME `categoryId` |
-| IncomeGenerationModule | `src/income-generation/` | ✓ Complete | Daily cron (`@nestjs/schedule`, 3 AM server time) that generates INCOME transactions from active income sources |
+| IncomeGenerationModule | `src/income-generation/` | ✓ Complete | Hourly cron (`@nestjs/schedule`) that generates INCOME transactions from active income sources in each profile's timezone |
 | RecurringExpensesModule | `src/recurring-expenses/` | ✓ Complete | Recurring expense CRUD (reactive generation pending) |
 | DashboardModule | `src/dashboard/` | ✓ Complete | Aggregated summary (net worth, active budgets, goals, credit, ...) |
 
@@ -91,7 +91,7 @@ src/{domain}/
 
 `ScheduleModule.forRoot()` (`@nestjs/schedule` **v6**, the Nest 11 line — v12+ targets Nest 12 and is ESM-only, which breaks this CommonJS build and Jest) is registered in `AppModule`.
 
-- `IncomeGenerationService` (`@Cron(EVERY_DAY_AT_3AM)`): for each active `IncomeSource`, computes paydays in the profile's IANA `timezone` from the local date of `createdAt` (inclusive) or the day after `lastGeneratedAt`, up to and including today. Each payday creates an INCOME transaction (`incomeSourceId` set, dated at local noon, category from the source) and increments the destination account balance in one `$transaction` together with the cursor update. The `lastGeneratedAt` cursor only moves forward, so incomes deleted by the user are not recreated. Per-source failures are logged and do not stop the job.
+- `IncomeGenerationService` (`@Cron(EVERY_HOUR)`): for each active `IncomeSource`, computes paydays in the profile's IANA `timezone` from the local date of `createdAt` (inclusive) or the day after `lastGeneratedAt`, up to and including today. The cursor (`lastGeneratedAt`) skips work on hours where no payday has passed, so most hourly runs do nothing. Each payday creates an INCOME transaction (`incomeSourceId` set, dated at local noon, category from the source) and increments the destination account balance in one `$transaction` together with the cursor update. The `lastGeneratedAt` cursor only moves forward, so incomes deleted by the user are not recreated. Per-source failures are logged and do not stop the job.
 
 ### Shared infrastructure
 
@@ -291,7 +291,7 @@ With `"module": "commonjs"`, `nest build` puts output directly in `dist/` (not `
 - **Build Command**: `bun install && bun run build` (postinstall runs `prisma generate` automatically)
 - **Start Command**: `bun run start:prod` (NOT `bun run start` — that uses `nest start`, which compiles in memory and is meant for development)
 - The Prisma client (`src/generated/prisma/`) is gitignored and must be generated during build
-- The process must stay running for the daily cron jobs to fire
+- The process must stay running for the hourly cron jobs to fire
 - All env vars must be set on the server: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, `DATABASE_URL`, `DIRECT_URL`, `CORS_ORIGIN`
 
 ### 4. Supabase JWT validation
