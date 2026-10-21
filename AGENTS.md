@@ -225,7 +225,7 @@ Both point to the same Supabase Postgres instance. The transaction pooler is for
 - **IDs**: `String @id @default(uuid())` — UUIDs, not auto-increment
 - **Money**: `Decimal @db.Decimal(12, 2)` — never use Float for money
 - **Interest rates**: `Decimal @db.Decimal(5, 4)` — stored as decimal (0.3600 = 36%)
-- **Soft delete**: `isActive Boolean` flag (used on Account, Budget)
+- **Soft delete**: `isActive Boolean` flag (used on Account). Budget and IncomeSource expose `PATCH /:id/deactivate` + `PATCH /:id/activate` for the reversible state and `DELETE` for permanent removal
 - **Cascade**: `onDelete: Cascade` on user-owned resources, `onDelete: SetNull` on optional FKs
 - **Timestamps**: `createdAt` with `@default(now())`, `updatedAt` with `@updatedAt`
 - **Indexes**: `@@index` on commonly queried fields (e.g., `[accountId, date]`)
@@ -334,7 +334,7 @@ See the Auth Architecture section. The key point: Supabase uses ES256, the JWT s
 
 - Inject `PrismaService` via constructor
 - All queries scope by `profileId` from `@CurrentUser()` — never trust client input for ownership
-- Soft delete with `isActive: false` instead of hard delete (for Account, Budget)
+- Soft delete with `isActive: false` instead of hard delete (for Account). Budget and IncomeSource: `DELETE` is permanent, deactivation goes through `PATCH /:id/deactivate`
 - Throw `NotFoundException` when a resource doesn't exist or doesn't belong to the user
 - Return Prisma entities directly (the `ValidationPipe` with `transform` handles serialization)
 
