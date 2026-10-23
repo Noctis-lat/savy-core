@@ -2,7 +2,6 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestj
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../auth/current-user.decorator";
 import {
-	ApiArraySuccessResponse,
 	ApiErrorResponse,
 	ApiMessageResponse,
 	ApiSuccessResponse,
@@ -12,6 +11,7 @@ import {
 	CreateSavingsGoalDto,
 	QuerySavingsGoalsDto,
 	SavingsGoalResponseDto,
+	SavingsGoalsListResponseDto,
 	UpdateSavingsGoalDto,
 } from "./dto/savings-goal.dto";
 import { SavingsGoalsService } from "./savings-goals.service";
@@ -23,12 +23,15 @@ export class SavingsGoalsController {
 	constructor(private readonly savingsGoalsService: SavingsGoalsService) {}
 
 	@Get()
-	@ApiOperation({ summary: "List all savings goals for the current user with optional filters" })
-	@ApiArraySuccessResponse(
+	@ApiOperation({
+		summary: "List savings goals with pagination, search and totals info (count + total saved)",
+	})
+	@ApiSuccessResponse(
 		200,
-		SavingsGoalResponseDto,
-		"Returns array of savings goals with computed progress",
+		SavingsGoalsListResponseDto,
+		"Returns paginated savings goals with computed progress and totals across filtered goals",
 	)
+	@ApiErrorResponse(400, "Invalid query parameters")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(500, "Internal server error")
 	async findAll(@CurrentUser() profile: Profile, @Query() query: QuerySavingsGoalsDto) {
@@ -36,6 +39,9 @@ export class SavingsGoalsController {
 			isCompleted: query.isCompleted === undefined ? undefined : query.isCompleted === "true",
 			sortBy: query.sortBy,
 			order: query.order,
+			search: query.search,
+			page: query.page,
+			perPage: query.perPage,
 		});
 	}
 

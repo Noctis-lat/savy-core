@@ -562,6 +562,7 @@ async function main() {
 			targetAmount: 200000.0,
 			deadline: monthsFromNow(6),
 			color: "#10B981",
+			icon: "shield",
 		},
 		{
 			name: "Viaje a Europa",
@@ -569,6 +570,7 @@ async function main() {
 			targetAmount: 150000.0,
 			deadline: monthsFromNow(12),
 			color: "#3B82F6",
+			icon: "plane",
 		},
 		{
 			name: "MacBook Pro",
@@ -576,6 +578,7 @@ async function main() {
 			targetAmount: 65000.0,
 			deadline: monthsFromNow(4),
 			color: "#8B5CF6",
+			icon: "laptop",
 		},
 		{
 			name: "Boda",
@@ -583,6 +586,7 @@ async function main() {
 			targetAmount: 300000.0,
 			deadline: monthsFromNow(18),
 			color: "#EC4899",
+			icon: "heart",
 		},
 	];
 	for (const g of goalDefs) {
@@ -594,6 +598,7 @@ async function main() {
 				targetAmount: g.targetAmount,
 				deadline: g.deadline,
 				color: g.color,
+				icon: g.icon,
 			},
 		});
 	}

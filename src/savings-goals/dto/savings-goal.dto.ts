@@ -4,10 +4,12 @@ import {
 	IsBooleanString,
 	IsDateString,
 	IsEnum,
+	IsInt,
 	IsNotEmpty,
 	IsNumber,
 	IsOptional,
 	IsString,
+	Max,
 	MaxLength,
 	Min,
 } from "class-validator";
@@ -53,6 +55,11 @@ export class CreateSavingsGoalDto {
 	@IsOptional()
 	@IsString()
 	color?: string;
+
+	@ApiPropertyOptional({ example: "plane", description: "Icon identifier" })
+	@IsOptional()
+	@IsString()
+	icon?: string;
 }
 
 export class UpdateSavingsGoalDto {
@@ -88,6 +95,15 @@ export class UpdateSavingsGoalDto {
 	@IsOptional()
 	@IsString()
 	color?: string;
+
+	@ApiPropertyOptional({
+		example: "plane",
+		nullable: true,
+		description: "Icon identifier. Pass null to clear.",
+	})
+	@IsOptional()
+	@IsString()
+	icon?: string | null;
 }
 
 export class SavingsGoalResponseDto {
@@ -111,6 +127,9 @@ export class SavingsGoalResponseDto {
 
 	@ApiPropertyOptional({ example: "#22c55e", description: "UI color" })
 	color!: string | null;
+
+	@ApiPropertyOptional({ example: "plane", description: "Icon identifier" })
+	icon!: string | null;
 
 	@ApiProperty({
 		example: 12500,
@@ -160,4 +179,80 @@ export class QuerySavingsGoalsDto {
 	@IsOptional()
 	@IsEnum(SortOrder)
 	order?: SortOrder;
+
+	@ApiPropertyOptional({
+		example: "viaje",
+		description: "Case-insensitive search by savings goal name (substring match)",
+	})
+	@IsOptional()
+	@IsString()
+	search?: string;
+
+	@ApiPropertyOptional({
+		example: 1,
+		default: 1,
+		minimum: 1,
+		description: "Page number (1-based)",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	page?: number;
+
+	@ApiPropertyOptional({
+		example: 10,
+		default: 10,
+		minimum: 1,
+		maximum: 100,
+		description: "Items per page",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	perPage?: number;
+}
+
+// ─── Paginated list response DTOs ──────────────────────────────────────
+
+export class SavingsGoalsInfoDto {
+	@ApiProperty({
+		example: 5,
+		description: "Number of savings goals matching the active filters",
+	})
+	totalSavingsGoals!: number;
+
+	@ApiProperty({
+		example: 12500,
+		description: "Sum of currentAmount (account balance) across all filtered goals",
+	})
+	totalSaved!: number;
+}
+
+export class SavingsGoalsListResponseDto {
+	@ApiProperty({
+		type: () => [SavingsGoalResponseDto],
+		description: "Savings goals in the current page, with computed progress",
+	})
+	savingsGoals!: SavingsGoalResponseDto[];
+
+	@ApiProperty({
+		type: () => SavingsGoalsInfoDto,
+		description: "Totals across all filtered savings goals (not just this page)",
+	})
+	info!: SavingsGoalsInfoDto;
+
+	@ApiProperty({ example: 1, description: "Current page number" })
+	page!: number;
+
+	@ApiProperty({ example: 10, description: "Items per page" })
+	perPage!: number;
+
+	@ApiProperty({ example: 1, description: "Total matching items across all pages" })
+	total!: number;
+
+	@ApiProperty({ example: 1, description: "Total pages (ceil(total / perPage))" })
+	totalPages!: number;
 }

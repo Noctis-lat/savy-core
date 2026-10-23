@@ -58,8 +58,8 @@ describe("SavingsGoalsService (findAll filters)", () => {
 		]);
 		const result = await service.findAllByProfile("p1", { sortBy: "currentAmount", order: "asc" });
 		expect(prisma.savingsGoal.findMany.mock.calls[0][0].orderBy).toEqual({ createdAt: "desc" });
-		expect(result[0].id).toBe("g1");
-		expect(result[1].id).toBe("g2");
+		expect(result.savingsGoals[0].id).toBe("g1");
+		expect(result.savingsGoals[1].id).toBe("g2");
 	});
 
 	it("filters by isCompleted in memory", async () => {
@@ -90,8 +90,79 @@ describe("SavingsGoalsService (findAll filters)", () => {
 			},
 		]);
 		const result = await service.findAllByProfile("p1", { isCompleted: false });
-		expect(result).toHaveLength(1);
-		expect(result[0].id).toBe("g1");
+		expect(result.savingsGoals).toHaveLength(1);
+		expect(result.savingsGoals[0].id).toBe("g1");
+	});
+
+	it("applies case-insensitive search on name at the DB layer", async () => {
+		await service.findAllByProfile("p1", { search: "viaje" });
+		const call = prisma.savingsGoal.findMany.mock.calls[0][0];
+		expect(call.where).toEqual({
+			profileId: "p1",
+			name: { contains: "viaje", mode: "insensitive" },
+		});
+	});
+
+	it("does not add a name filter when search is empty", async () => {
+		await service.findAllByProfile("p1", { search: "" });
+		const call = prisma.savingsGoal.findMany.mock.calls[0][0];
+		expect(call.where).toEqual({ profileId: "p1" });
+	});
+
+	it("paginates in memory and returns pagination metadata", async () => {
+		const goals = Array.from({ length: 12 }, (_, i) => ({
+			id: `g${i}`,
+			profileId: "p1",
+			accountId: `a${i}`,
+			name: `G${i}`,
+			targetAmount: { toString: () => "100" } as unknown as object,
+			deadline: null,
+			color: null,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			account: { balance: { toString: () => "0" } as unknown as object },
+		}));
+		prisma.savingsGoal.findMany.mockResolvedValue(goals);
+		const result = await service.findAllByProfile("p1", { page: 2, perPage: 5 });
+		expect(result.savingsGoals).toHaveLength(5);
+		expect(result.savingsGoals[0].id).toBe("g5");
+		expect(result.page).toBe(2);
+		expect(result.perPage).toBe(5);
+		expect(result.total).toBe(12);
+		expect(result.totalPages).toBe(3);
+	});
+
+	it("info totals cover all filtered goals, not just the page", async () => {
+		prisma.savingsGoal.findMany.mockResolvedValue([
+			{
+				id: "g1",
+				profileId: "p1",
+				accountId: "a1",
+				name: "G1",
+				targetAmount: { toString: () => "100" } as unknown as object,
+				deadline: null,
+				color: null,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+				account: { balance: { toString: () => "30" } as unknown as object },
+			},
+			{
+				id: "g2",
+				profileId: "p1",
+				accountId: "a2",
+				name: "G2",
+				targetAmount: { toString: () => "100" } as unknown as object,
+				deadline: null,
+				color: null,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+				account: { balance: { toString: () => "70" } as unknown as object },
+			},
+		]);
+		const result = await service.findAllByProfile("p1", { perPage: 1 });
+		expect(result.info.totalSavingsGoals).toBe(2);
+		expect(result.info.totalSaved).toBe(100);
+		expect(result.savingsGoals).toHaveLength(1);
 	});
 });
 

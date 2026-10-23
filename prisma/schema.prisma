@@ -296,6 +296,7 @@ model SavingsGoal {
   targetAmount Decimal   @map("target_amount") @db.Decimal(12, 2)
   deadline     DateTime?
   color        String?
+  icon         String?
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 

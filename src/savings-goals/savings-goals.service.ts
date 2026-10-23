@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import type { SavingsGoal } from "../generated/prisma/client";
+import type { Prisma, SavingsGoal } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateSavingsGoalDto, UpdateSavingsGoalDto } from "./dto/savings-goal.dto";
 
@@ -7,6 +7,31 @@ export interface SavingsGoalWithComputed extends Omit<SavingsGoal, "targetAmount
 	targetAmount: number;
 	currentAmount: number;
 	isCompleted: boolean;
+}
+
+export interface SavingsGoalsFilters {
+	isCompleted?: boolean;
+	sortBy?: "deadline" | "targetAmount" | "currentAmount";
+	order?: "asc" | "desc";
+	page?: number;
+	perPage?: number;
+	search?: string;
+}
+
+export interface SavingsGoalsInfo {
+	/** Number of savings goals matching the active filters. */
+	totalSavingsGoals: number;
+	/** Sum of currentAmount (account balance) across all filtered goals. */
+	totalSaved: number;
+}
+
+export interface SavingsGoalsListResult {
+	savingsGoals: SavingsGoalWithComputed[];
+	info: SavingsGoalsInfo;
+	page: number;
+	perPage: number;
+	total: number;
+	totalPages: number;
 }
 
 const VALID_ACCOUNT_TYPES = ["DEBIT", "CASH"];
@@ -17,19 +42,25 @@ export class SavingsGoalsService {
 
 	async findAllByProfile(
 		profileId: string,
-		filters?: {
-			isCompleted?: boolean;
-			sortBy?: "deadline" | "targetAmount" | "currentAmount";
-			order?: "asc" | "desc";
-		},
-	): Promise<SavingsGoalWithComputed[]> {
+		filters?: SavingsGoalsFilters,
+	): Promise<SavingsGoalsListResult> {
 		const sortBy = filters?.sortBy ?? "deadline";
 		const order = filters?.order ?? "asc";
+		const page = filters?.page ?? 1;
+		const perPage = filters?.perPage ?? 10;
 
-		// deadline/targetAmount can be ordered at the DB layer; currentAmount is computed,
-		// so we fetch then sort in memory.
+		// isCompleted and currentAmount are computed from account.balance, so the
+		// isCompleted filter and currentAmount sort cannot run at the DB layer.
+		// We fetch every goal matching the DB-level filters (profileId + search),
+		// then filter, sort and paginate in memory. info totals cover the filtered
+		// set (after isCompleted, before pagination), mirroring budgets behaviour.
+		const where: Prisma.SavingsGoalWhereInput = {
+			profileId,
+			...(filters?.search ? { name: { contains: filters.search, mode: "insensitive" } } : {}),
+		};
+
 		const goals = await this.prisma.savingsGoal.findMany({
-			where: { profileId },
+			where,
 			include: { account: { select: { balance: true } } },
 			orderBy:
 				sortBy === "deadline" || sortBy === "targetAmount"
@@ -50,7 +81,17 @@ export class SavingsGoalsService {
 			});
 		}
 
-		return mapped;
+		const total = mapped.length;
+		const totalPages = Math.ceil(total / perPage) || 1;
+		const start = (page - 1) * perPage;
+		const paged = mapped.slice(start, start + perPage);
+
+		const info: SavingsGoalsInfo = {
+			totalSavingsGoals: total,
+			totalSaved: mapped.reduce((sum, g) => sum + g.currentAmount, 0),
+		};
+
+		return { savingsGoals: paged, info, page, perPage, total, totalPages };
 	}
 
 	async findOne(id: string, profileId: string): Promise<SavingsGoalWithComputed> {
@@ -75,6 +116,7 @@ export class SavingsGoalsService {
 				targetAmount: dto.targetAmount,
 				deadline: dto.deadline ? new Date(dto.deadline) : null,
 				color: dto.color,
+				icon: dto.icon,
 			},
 			include: { account: { select: { balance: true } } },
 		});
@@ -110,6 +152,7 @@ export class SavingsGoalsService {
 							: null
 						: existing.deadline,
 				color: dto.color ?? existing.color,
+				icon: dto.icon !== undefined ? dto.icon : existing.icon,
 			},
 			include: { account: { select: { balance: true } } },
 		});
@@ -139,6 +182,7 @@ export class SavingsGoalsService {
 			targetAmount,
 			deadline: goal.deadline,
 			color: goal.color,
+			icon: goal.icon,
 			currentAmount,
 			isCompleted: currentAmount >= targetAmount,
 			createdAt: goal.createdAt,
