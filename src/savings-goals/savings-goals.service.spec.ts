@@ -166,6 +166,80 @@ describe("SavingsGoalsService (findAll filters)", () => {
 	});
 });
 
+describe("SavingsGoalsService (create color/icon inheritance)", () => {
+	let service: SavingsGoalsService;
+	let prisma: {
+		savingsGoal: { findMany: jest.Mock; create: jest.Mock };
+		account: { findFirst: jest.Mock };
+	};
+
+	beforeEach(async () => {
+		prisma = {
+			savingsGoal: {
+				findMany: jest.fn().mockResolvedValue([]),
+				create: jest.fn().mockImplementation(async (args: { data: Record<string, unknown> }) => ({
+					id: "g-new",
+					profileId: "p1",
+					accountId: args.data.accountId,
+					name: args.data.name,
+					targetAmount: { toString: () => String(args.data.targetAmount) } as unknown as object,
+					deadline: args.data.deadline ?? null,
+					color: args.data.color ?? null,
+					icon: args.data.icon ?? null,
+					createdAt: new Date(),
+					updatedAt: new Date(),
+					account: { balance: { toString: () => "0" } as unknown as object },
+				})),
+			},
+			account: {
+				findFirst: jest
+					.fn()
+					.mockResolvedValue({ id: "a1", type: "DEBIT", color: "#10B981", icon: "wallet" }),
+			},
+		};
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [SavingsGoalsService, { provide: PrismaService, useValue: prisma }],
+		}).compile();
+		service = module.get(SavingsGoalsService);
+	});
+
+	it("inherits color and icon from the linked account when omitted", async () => {
+		await service.create("p1", {
+			accountId: "a1",
+			name: "Fondo",
+			targetAmount: 1000,
+		});
+		const data = prisma.savingsGoal.create.mock.calls[0][0].data;
+		expect(data.color).toBe("#10B981");
+		expect(data.icon).toBe("wallet");
+	});
+
+	it("explicit dto color/icon override the account values", async () => {
+		await service.create("p1", {
+			accountId: "a1",
+			name: "Fondo",
+			targetAmount: 1000,
+			color: "#FF0000",
+			icon: "plane",
+		});
+		const data = prisma.savingsGoal.create.mock.calls[0][0].data;
+		expect(data.color).toBe("#FF0000");
+		expect(data.icon).toBe("plane");
+	});
+
+	it("inherits null color/icon from the account (stays null)", async () => {
+		prisma.account.findFirst.mockResolvedValue({ id: "a1", type: "CASH", color: null, icon: null });
+		await service.create("p1", {
+			accountId: "a1",
+			name: "Fondo",
+			targetAmount: 1000,
+		});
+		const data = prisma.savingsGoal.create.mock.calls[0][0].data;
+		expect(data.color).toBeNull();
+		expect(data.icon).toBeNull();
+	});
+});
+
 describe("QuerySavingsGoalsDto validation", () => {
 	it("rejects an invalid sortBy value", async () => {
 		const instance = plainToInstance(QuerySavingsGoalsDto, { sortBy: "bogus" });

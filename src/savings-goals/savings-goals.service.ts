@@ -106,7 +106,10 @@ export class SavingsGoalsService {
 	}
 
 	async create(profileId: string, dto: CreateSavingsGoalDto): Promise<SavingsGoalWithComputed> {
-		await this.validateAccount(dto.accountId, profileId);
+		// color and icon inherit from the linked account when the DTO omits them.
+		// The frontend creates the account first, then the savings goal, so the goal
+		// should mirror the account's visual identity unless explicitly overridden.
+		const account = await this.validateAccount(dto.accountId, profileId);
 
 		const goal = await this.prisma.savingsGoal.create({
 			data: {
@@ -115,8 +118,8 @@ export class SavingsGoalsService {
 				name: dto.name,
 				targetAmount: dto.targetAmount,
 				deadline: dto.deadline ? new Date(dto.deadline) : null,
-				color: dto.color,
-				icon: dto.icon,
+				color: dto.color ?? account.color,
+				icon: dto.icon ?? account.icon,
 			},
 			include: { account: { select: { balance: true } } },
 		});
@@ -190,10 +193,13 @@ export class SavingsGoalsService {
 		};
 	}
 
-	private async validateAccount(accountId: string, profileId: string): Promise<void> {
+	private async validateAccount(
+		accountId: string,
+		profileId: string,
+	): Promise<{ id: string; color: string | null; icon: string | null }> {
 		const account = await this.prisma.account.findFirst({
 			where: { id: accountId, profileId },
-			select: { id: true, type: true },
+			select: { id: true, type: true, color: true, icon: true },
 		});
 		if (!account) {
 			throw new NotFoundException("Account not found");
@@ -203,5 +209,6 @@ export class SavingsGoalsService {
 				`Savings goal account must be DEBIT or CASH, got ${account.type}`,
 			);
 		}
+		return { id: account.id, color: account.color, icon: account.icon };
 	}
 }

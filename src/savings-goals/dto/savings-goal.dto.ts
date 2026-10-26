@@ -51,12 +51,18 @@ export class CreateSavingsGoalDto {
 	@IsDateString()
 	deadline?: string;
 
-	@ApiPropertyOptional({ example: "#22c55e", description: "UI color hex/oklch" })
+	@ApiPropertyOptional({
+		example: "#22c55e",
+		description: "UI color hex/oklch. Inherits from the linked account when omitted.",
+	})
 	@IsOptional()
 	@IsString()
 	color?: string;
 
-	@ApiPropertyOptional({ example: "plane", description: "Icon identifier" })
+	@ApiPropertyOptional({
+		example: "plane",
+		description: "Icon identifier. Inherits from the linked account when omitted.",
+	})
 	@IsOptional()
 	@IsString()
 	icon?: string;
