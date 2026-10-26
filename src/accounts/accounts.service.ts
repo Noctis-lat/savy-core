@@ -134,6 +134,7 @@ export class AccountsService {
 				balance: dto.balance ?? 0,
 				color: dto.color,
 				icon: dto.icon,
+				isSavingGoal: dto.isSavingGoal ?? false,
 			},
 		});
 	}

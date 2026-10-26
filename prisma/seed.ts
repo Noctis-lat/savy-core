@@ -134,6 +134,7 @@ async function main() {
 			balance: 120000.0,
 			currency: "MXN",
 			isActive: true,
+			isSavingGoal: true,
 		},
 	});
 	const acc3 = await prisma.account.create({

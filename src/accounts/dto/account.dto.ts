@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Type } from "class-transformer";
 import {
+	IsBoolean,
 	IsBooleanString,
 	IsEnum,
 	IsInt,
@@ -72,6 +73,15 @@ export class CreateAccountDto {
 	@IsOptional()
 	@IsString()
 	icon?: string;
+
+	@ApiPropertyOptional({
+		example: false,
+		default: false,
+		description: "Whether this account backs a savings goal. Defaults to false when omitted.",
+	})
+	@IsOptional()
+	@IsBoolean()
+	isSavingGoal?: boolean;
 }
 
 export class UpdateAccountDto {
@@ -105,6 +115,14 @@ export class UpdateAccountDto {
 	@IsOptional()
 	@IsString()
 	icon?: string;
+
+	@ApiPropertyOptional({
+		example: false,
+		description: "Whether this account backs a savings goal",
+	})
+	@IsOptional()
+	@IsBoolean()
+	isSavingGoal?: boolean;
 }
 
 export class AccountResponseDto {
@@ -137,6 +155,12 @@ export class AccountResponseDto {
 
 	@ApiProperty({ example: true, description: "Whether the account is active" })
 	isActive!: boolean;
+
+	@ApiProperty({
+		example: false,
+		description: "Whether this account backs a savings goal",
+	})
+	isSavingGoal!: boolean;
 
 	@ApiProperty({ example: "2026-07-28T07:06:12.000Z", description: "Creation date" })
 	createdAt!: Date;
