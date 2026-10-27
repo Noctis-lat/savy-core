@@ -96,6 +96,16 @@ export class SubscriptionsController {
 		return { message: "Subscription cancelled" };
 	}
 
+	@Patch(":id/activate")
+	@ApiOperation({ summary: "Reactivate a previously cancelled subscription" })
+	@ApiSuccessResponse(200, RecurringExpenseResponseDto, "Returns the reactivated subscription")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Recurring expense not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async activate(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.recurringExpensesService.activateByType(id, profile.id, "SUBSCRIPTION");
+	}
+
 	@Delete(":id/permanent")
 	@ApiOperation({
 		summary: "Permanently delete a subscription (hard delete — removes record)",

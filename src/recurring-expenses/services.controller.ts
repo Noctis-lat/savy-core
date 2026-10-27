@@ -94,6 +94,16 @@ export class ServicesController {
 		return { message: "Service cancelled" };
 	}
 
+	@Patch(":id/activate")
+	@ApiOperation({ summary: "Reactivate a previously cancelled service" })
+	@ApiSuccessResponse(200, RecurringExpenseResponseDto, "Returns the reactivated service")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Recurring expense not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async activate(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.recurringExpensesService.activateByType(id, profile.id, "SERVICE");
+	}
+
 	@Delete(":id/permanent")
 	@ApiOperation({
 		summary: "Permanently delete a service (hard delete — removes record)",

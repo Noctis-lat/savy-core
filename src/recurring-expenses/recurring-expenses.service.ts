@@ -172,6 +172,14 @@ export class RecurringExpensesService {
 		});
 	}
 
+	async activate(id: string, profileId: string): Promise<RecurringExpense> {
+		await this.findOne(id, profileId);
+		return this.prisma.recurringExpense.update({
+			where: { id },
+			data: { isActive: true },
+		});
+	}
+
 	async deletePermanent(id: string, profileId: string): Promise<void> {
 		await this.findOne(id, profileId);
 		await this.prisma.recurringExpense.delete({
@@ -357,6 +365,18 @@ export class RecurringExpensesService {
 		await this.prisma.recurringExpense.update({
 			where: { id },
 			data: { isActive: false },
+		});
+	}
+
+	async activateByType(
+		id: string,
+		profileId: string,
+		type: RecurringExpenseType,
+	): Promise<RecurringExpense> {
+		await this.findOneByType(id, profileId, type);
+		return this.prisma.recurringExpense.update({
+			where: { id },
+			data: { isActive: true },
 		});
 	}
 

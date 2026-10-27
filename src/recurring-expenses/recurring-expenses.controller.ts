@@ -94,6 +94,16 @@ export class RecurringExpensesController {
 		return { message: "Recurring expense cancelled" };
 	}
 
+	@Patch(":id/activate")
+	@ApiOperation({ summary: "Reactivate a previously cancelled recurring expense" })
+	@ApiSuccessResponse(200, RecurringExpenseResponseDto, "Returns the reactivated recurring expense")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Recurring expense not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async activate(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.recurringExpensesService.activate(id, profile.id);
+	}
+
 	@Delete(":id/permanent")
 	@ApiOperation({
 		summary: "Permanently delete a recurring expense (hard delete — removes record)",
