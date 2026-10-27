@@ -318,6 +318,40 @@ export class QueryRecurringExpensesDto {
 	@IsOptional()
 	@IsEnum(SortOrder)
 	order?: SortOrder;
+
+	@ApiPropertyOptional({
+		example: "netflix",
+		description: "Case-insensitive search by name (substring match)",
+	})
+	@IsOptional()
+	@IsString()
+	search?: string;
+
+	@ApiPropertyOptional({
+		example: 1,
+		default: 1,
+		minimum: 1,
+		description: "Page number (1-based)",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	page?: number;
+
+	@ApiPropertyOptional({
+		example: 10,
+		default: 10,
+		minimum: 1,
+		maximum: 100,
+		description: "Items per page",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	perPage?: number;
 }
 
 export class CreateRecurringByTypeDto extends OmitType(CreateRecurringExpenseDto, ["type"]) {}

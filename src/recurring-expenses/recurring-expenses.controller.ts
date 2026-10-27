@@ -2,7 +2,6 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestj
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../auth/current-user.decorator";
 import {
-	ApiArraySuccessResponse,
 	ApiErrorResponse,
 	ApiMessageResponse,
 	ApiSuccessResponse,
@@ -11,6 +10,7 @@ import type { Profile } from "../generated/prisma/client";
 import {
 	CreateRecurringExpenseDto,
 	QueryRecurringExpensesDto,
+	RecurringByTypeListResponseDto,
 	RecurringExpenseResponseDto,
 	UpdateRecurringExpenseDto,
 } from "./dto/recurring-expense.dto";
@@ -24,9 +24,14 @@ export class RecurringExpensesController {
 
 	@Get()
 	@ApiOperation({
-		summary: "List all recurring expenses for the current user with optional filters",
+		summary: "List recurring expenses with pagination, search, type filter and totals info",
 	})
-	@ApiArraySuccessResponse(200, RecurringExpenseResponseDto, "Returns array of recurring expenses")
+	@ApiSuccessResponse(
+		200,
+		RecurringByTypeListResponseDto,
+		"Returns paginated recurring expenses with totals info (count + sum of amounts)",
+	)
+	@ApiErrorResponse(400, "Invalid query parameters")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(500, "Internal server error")
 	async findAll(@CurrentUser() profile: Profile, @Query() query: QueryRecurringExpensesDto) {
@@ -35,6 +40,9 @@ export class RecurringExpensesController {
 			isActive: query.isActive === undefined ? undefined : query.isActive === "true",
 			sortBy: query.sortBy,
 			order: query.order,
+			search: query.search,
+			page: query.page,
+			perPage: query.perPage,
 		});
 	}
 

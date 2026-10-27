@@ -34,19 +34,56 @@ export class RecurringExpensesService {
 			isActive?: boolean;
 			sortBy?: "name" | "amount" | "createdAt";
 			order?: "asc" | "desc";
+			search?: string;
+			page?: number;
+			perPage?: number;
 		},
-	): Promise<RecurringExpense[]> {
+	): Promise<{
+		data: RecurringExpense[];
+		info: { total: number; totalEstimated: number };
+		page: number;
+		perPage: number;
+		total: number;
+		totalPages: number;
+	}> {
 		const sortBy = filters?.sortBy ?? "createdAt";
 		const order = filters?.order ?? "desc";
 		const isActive = filters?.isActive === undefined ? true : filters.isActive;
-		return this.prisma.recurringExpense.findMany({
-			where: {
-				profileId,
-				isActive,
-				...(filters?.type ? { type: filters.type } : {}),
+		const page = filters?.page ?? 1;
+		const perPage = filters?.perPage ?? 10;
+
+		const where: Prisma.RecurringExpenseWhereInput = {
+			profileId,
+			isActive,
+			...(filters?.type ? { type: filters.type } : {}),
+			...(filters?.search ? { name: { contains: filters.search, mode: "insensitive" } } : {}),
+		};
+
+		const [data, total, sumResult] = await Promise.all([
+			this.prisma.recurringExpense.findMany({
+				where,
+				orderBy: { [sortBy]: order },
+				skip: (page - 1) * perPage,
+				take: perPage,
+			}),
+			this.prisma.recurringExpense.count({ where }),
+			this.prisma.recurringExpense.aggregate({
+				where,
+				_sum: { amount: true },
+			}),
+		]);
+
+		return {
+			data,
+			info: {
+				total,
+				totalEstimated: Number(sumResult._sum.amount ?? 0),
 			},
-			orderBy: { [sortBy]: order },
-		});
+			page,
+			perPage,
+			total,
+			totalPages: Math.ceil(total / perPage) || 1,
+		};
 	}
 
 	async findOne(id: string, profileId: string): Promise<RecurringExpense> {
