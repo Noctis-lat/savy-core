@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { ApiProperty, ApiPropertyOptional, OmitType } from "@nestjs/swagger";
 import { Type } from "class-transformer";
 import {
 	ArrayMaxSize,
@@ -318,4 +318,113 @@ export class QueryRecurringExpensesDto {
 	@IsOptional()
 	@IsEnum(SortOrder)
 	order?: SortOrder;
+}
+
+export class CreateRecurringByTypeDto extends OmitType(CreateRecurringExpenseDto, ["type"]) {}
+
+export class UpdateRecurringByTypeDto extends OmitType(UpdateRecurringExpenseDto, ["type"]) {}
+
+export class QueryRecurringByTypeDto {
+	@ApiPropertyOptional({
+		example: "true",
+		description: 'Filter by active state (accepts "true"/"false"). Defaults to true.',
+	})
+	@IsOptional()
+	@IsBooleanString()
+	isActive?: string;
+
+	@ApiPropertyOptional({
+		enum: RecurringExpenseSortBy,
+		example: RecurringExpenseSortBy.createdAt,
+		default: RecurringExpenseSortBy.createdAt,
+		description: "Sort field",
+	})
+	@IsOptional()
+	@IsEnum(RecurringExpenseSortBy)
+	sortBy?: RecurringExpenseSortBy;
+
+	@ApiPropertyOptional({
+		enum: SortOrder,
+		example: SortOrder.desc,
+		default: SortOrder.desc,
+		description: "Sort order",
+	})
+	@IsOptional()
+	@IsEnum(SortOrder)
+	order?: SortOrder;
+
+	@ApiPropertyOptional({
+		example: "netflix",
+		description: "Case-insensitive search by name (substring match)",
+	})
+	@IsOptional()
+	@IsString()
+	search?: string;
+
+	@ApiPropertyOptional({
+		example: 1,
+		default: 1,
+		minimum: 1,
+		description: "Page number (1-based)",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	page?: number;
+
+	@ApiPropertyOptional({
+		example: 10,
+		default: 10,
+		minimum: 1,
+		maximum: 100,
+		description: "Items per page",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	perPage?: number;
+}
+
+export class RecurringByTypeInfoDto {
+	@ApiProperty({
+		example: 5,
+		description: "Count of items matching the active filters for this type",
+	})
+	total!: number;
+
+	@ApiProperty({
+		example: 1200,
+		description:
+			"Sum of amounts across all filtered items of this type (plain sum, no frequency normalization)",
+	})
+	totalEstimated!: number;
+}
+
+export class RecurringByTypeListResponseDto {
+	@ApiProperty({
+		type: () => [RecurringExpenseResponseDto],
+		description: "Items in the current page",
+	})
+	data!: RecurringExpenseResponseDto[];
+
+	@ApiProperty({
+		type: () => RecurringByTypeInfoDto,
+		description: "Totals across all filtered items (not just this page)",
+	})
+	info!: RecurringByTypeInfoDto;
+
+	@ApiProperty({ example: 1, description: "Current page number" })
+	page!: number;
+
+	@ApiProperty({ example: 10, description: "Items per page" })
+	perPage!: number;
+
+	@ApiProperty({ example: 1, description: "Total matching items across all pages" })
+	total!: number;
+
+	@ApiProperty({ example: 1, description: "Total pages (ceil(total / perPage))" })
+	totalPages!: number;
 }

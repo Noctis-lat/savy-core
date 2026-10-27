@@ -1,12 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import type {
-	RecurringExpense,
-	RecurringExpenseFrequency,
-	RecurringExpenseType,
+import {
+	Prisma,
+	type RecurringExpense,
+	type RecurringExpenseFrequency,
+	type RecurringExpenseType,
 } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import type {
+	CreateRecurringByTypeDto,
 	CreateRecurringExpenseDto,
+	UpdateRecurringByTypeDto,
 	UpdateRecurringExpenseDto,
 } from "./dto/recurring-expense.dto";
 
@@ -169,5 +172,153 @@ export class RecurringExpensesService {
 		if (!category) {
 			throw new NotFoundException("Category not found or does not belong to the user");
 		}
+	}
+
+	async findAllByType(
+		profileId: string,
+		type: RecurringExpenseType,
+		filters?: {
+			isActive?: boolean;
+			sortBy?: "name" | "amount" | "createdAt";
+			order?: "asc" | "desc";
+			search?: string;
+			page?: number;
+			perPage?: number;
+		},
+	): Promise<{
+		data: RecurringExpense[];
+		info: { total: number; totalEstimated: number };
+		page: number;
+		perPage: number;
+		total: number;
+		totalPages: number;
+	}> {
+		const isActive = filters?.isActive === undefined ? true : filters.isActive;
+		const sortBy = filters?.sortBy ?? "createdAt";
+		const order = filters?.order ?? "desc";
+		const page = filters?.page ?? 1;
+		const perPage = filters?.perPage ?? 10;
+
+		const where: Prisma.RecurringExpenseWhereInput = {
+			profileId,
+			type,
+			isActive,
+			...(filters?.search ? { name: { contains: filters.search, mode: "insensitive" } } : {}),
+		};
+
+		const [data, total, sumResult] = await Promise.all([
+			this.prisma.recurringExpense.findMany({
+				where,
+				orderBy: { [sortBy]: order },
+				skip: (page - 1) * perPage,
+				take: perPage,
+			}),
+			this.prisma.recurringExpense.count({ where }),
+			this.prisma.recurringExpense.aggregate({
+				where,
+				_sum: { amount: true },
+			}),
+		]);
+
+		return {
+			data,
+			info: {
+				total,
+				totalEstimated: Number(sumResult._sum.amount ?? 0),
+			},
+			page,
+			perPage,
+			total,
+			totalPages: Math.ceil(total / perPage) || 1,
+		};
+	}
+
+	async findOneByType(
+		id: string,
+		profileId: string,
+		type: RecurringExpenseType,
+	): Promise<RecurringExpense> {
+		const expense = await this.prisma.recurringExpense.findFirst({
+			where: { id, profileId, type },
+		});
+		if (!expense) {
+			throw new NotFoundException("Recurring expense not found");
+		}
+		return expense;
+	}
+
+	async createByType(
+		profileId: string,
+		type: RecurringExpenseType,
+		dto: CreateRecurringByTypeDto,
+	): Promise<RecurringExpense> {
+		const billingErrors = this.validateBillingDays(dto.frequency, dto.billingDays);
+		if (billingErrors.length > 0) {
+			throw new BadRequestException(billingErrors);
+		}
+		await this.validateAccountOwnership(dto.accountId, profileId);
+		if (dto.categoryId) {
+			await this.validateCategoryOwnership(dto.categoryId, profileId);
+		}
+		return this.prisma.recurringExpense.create({
+			data: {
+				profileId,
+				name: dto.name,
+				amount: dto.amount,
+				frequency: dto.frequency,
+				billingDays: dto.billingDays,
+				type,
+				accountId: dto.accountId,
+				categoryId: dto.categoryId ?? null,
+				url: dto.url ?? null,
+				color: dto.color ?? null,
+				icon: dto.icon ?? null,
+			},
+		});
+	}
+
+	async updateByType(
+		id: string,
+		profileId: string,
+		type: RecurringExpenseType,
+		dto: UpdateRecurringByTypeDto,
+	): Promise<RecurringExpense> {
+		const existing = await this.findOneByType(id, profileId, type);
+
+		const frequency = dto.frequency ?? existing.frequency;
+		const billingDays = dto.billingDays ?? existing.billingDays;
+		const billingErrors = this.validateBillingDays(frequency, billingDays);
+		if (billingErrors.length > 0) {
+			throw new BadRequestException(billingErrors);
+		}
+
+		if (dto.accountId) {
+			await this.validateAccountOwnership(dto.accountId, profileId);
+		}
+		if (dto.categoryId) {
+			await this.validateCategoryOwnership(dto.categoryId, profileId);
+		}
+
+		return this.prisma.recurringExpense.update({
+			where: { id },
+			data: dto,
+		});
+	}
+
+	async cancelByType(id: string, profileId: string, type: RecurringExpenseType): Promise<void> {
+		await this.findOneByType(id, profileId, type);
+		await this.prisma.recurringExpense.update({
+			where: { id },
+			data: { isActive: false },
+		});
+	}
+
+	async deletePermanentByType(
+		id: string,
+		profileId: string,
+		type: RecurringExpenseType,
+	): Promise<void> {
+		await this.findOneByType(id, profileId, type);
+		await this.prisma.recurringExpense.delete({ where: { id } });
 	}
 }
