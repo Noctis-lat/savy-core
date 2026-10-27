@@ -240,6 +240,54 @@ describe("SavingsGoalsService (create color/icon inheritance)", () => {
 	});
 });
 
+describe("SavingsGoalsService (findByAccount)", () => {
+	let service: SavingsGoalsService;
+	let prisma: {
+		savingsGoal: { findFirst: jest.Mock };
+	};
+
+	beforeEach(async () => {
+		prisma = {
+			savingsGoal: {
+				findFirst: jest.fn().mockResolvedValue({
+					id: "g1",
+					profileId: "p1",
+					accountId: "a1",
+					name: "Fondo",
+					targetAmount: { toString: () => "1000" } as unknown as object,
+					deadline: null,
+					color: "#10B981",
+					icon: "wallet",
+					createdAt: new Date(),
+					updatedAt: new Date(),
+					account: { balance: { toString: () => "300" } as unknown as object },
+				}),
+			},
+		};
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [SavingsGoalsService, { provide: PrismaService, useValue: prisma }],
+		}).compile();
+		service = module.get(SavingsGoalsService);
+	});
+
+	it("finds the savings goal by accountId scoped to the profile", async () => {
+		const goal = await service.findByAccount("a1", "p1");
+		expect(prisma.savingsGoal.findFirst).toHaveBeenCalledWith({
+			where: { accountId: "a1", profileId: "p1" },
+			include: { account: { select: { balance: true } } },
+		});
+		expect(goal.id).toBe("g1");
+		expect(goal.currentAmount).toBe(300);
+	});
+
+	it("throws NotFoundException when no goal is linked to the account", async () => {
+		prisma.savingsGoal.findFirst.mockResolvedValue(null);
+		await expect(service.findByAccount("a-missing", "p1")).rejects.toThrow(
+			"Savings goal not found for this account",
+		);
+	});
+});
+
 describe("QuerySavingsGoalsDto validation", () => {
 	it("rejects an invalid sortBy value", async () => {
 		const instance = plainToInstance(QuerySavingsGoalsDto, { sortBy: "bogus" });

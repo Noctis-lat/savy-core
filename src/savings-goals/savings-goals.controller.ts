@@ -45,6 +45,20 @@ export class SavingsGoalsController {
 		});
 	}
 
+	@Get("account/:accountId")
+	@ApiOperation({ summary: "Get the savings goal linked to a given account ID" })
+	@ApiSuccessResponse(
+		200,
+		SavingsGoalResponseDto,
+		"Returns the savings goal linked to the account, with computed progress",
+	)
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Savings goal not found for this account")
+	@ApiErrorResponse(500, "Internal server error")
+	async findByAccount(@Param("accountId") accountId: string, @CurrentUser() profile: Profile) {
+		return this.savingsGoalsService.findByAccount(accountId, profile.id);
+	}
+
 	@Get(":id")
 	@ApiOperation({ summary: "Get a single savings goal by ID" })
 	@ApiSuccessResponse(

@@ -105,6 +105,17 @@ export class SavingsGoalsService {
 		return this.withComputed(goal);
 	}
 
+	async findByAccount(accountId: string, profileId: string): Promise<SavingsGoalWithComputed> {
+		const goal = await this.prisma.savingsGoal.findFirst({
+			where: { accountId, profileId },
+			include: { account: { select: { balance: true } } },
+		});
+		if (!goal) {
+			throw new NotFoundException("Savings goal not found for this account");
+		}
+		return this.withComputed(goal);
+	}
+
 	async create(profileId: string, dto: CreateSavingsGoalDto): Promise<SavingsGoalWithComputed> {
 		// color and icon inherit from the linked account when the DTO omits them.
 		// The frontend creates the account first, then the savings goal, so the goal
