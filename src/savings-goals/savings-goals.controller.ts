@@ -100,13 +100,16 @@ export class SavingsGoalsController {
 	}
 
 	@Delete(":id")
-	@ApiOperation({ summary: "Delete a savings goal (account and balance are not affected)" })
-	@ApiMessageResponse(200, "Savings goal deleted")
+	@ApiOperation({
+		summary:
+			"Delete a savings goal and its backing account (cascade: transactions, cards, loans on that account are also removed)",
+	})
+	@ApiMessageResponse(200, "Savings goal and its account deleted")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Savings goal not found")
 	@ApiErrorResponse(500, "Internal server error")
 	async remove(@Param("id") id: string, @CurrentUser() profile: Profile) {
 		await this.savingsGoalsService.remove(id, profile.id);
-		return { message: "Savings goal deleted" };
+		return { message: "Savings goal and its account deleted" };
 	}
 }

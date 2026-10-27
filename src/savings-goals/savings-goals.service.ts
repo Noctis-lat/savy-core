@@ -176,11 +176,17 @@ export class SavingsGoalsService {
 	async remove(id: string, profileId: string): Promise<void> {
 		const goal = await this.prisma.savingsGoal.findFirst({
 			where: { id, profileId },
+			select: { id: true, accountId: true },
 		});
 		if (!goal) {
 			throw new NotFoundException("Savings goal not found");
 		}
-		await this.prisma.savingsGoal.delete({ where: { id } });
+		// Cascade delete: removing the account cascades to the savings goal
+		// (onDelete: Cascade on SavingsGoal.account) and to every transaction,
+		// credit card, loan, income source and recurring expense tied to it.
+		// The frontend creates one dedicated account per savings goal, so this
+		// mirrors the 1:1 ownership the user expects.
+		await this.prisma.account.delete({ where: { id: goal.accountId } });
 	}
 
 	private withComputed(

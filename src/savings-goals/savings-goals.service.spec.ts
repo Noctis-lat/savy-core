@@ -288,6 +288,46 @@ describe("SavingsGoalsService (findByAccount)", () => {
 	});
 });
 
+describe("SavingsGoalsService (remove cascade)", () => {
+	let service: SavingsGoalsService;
+	let prisma: {
+		savingsGoal: { findFirst: jest.Mock; delete: jest.Mock };
+		account: { delete: jest.Mock };
+	};
+
+	beforeEach(async () => {
+		prisma = {
+			savingsGoal: {
+				findFirst: jest.fn().mockResolvedValue({ id: "g1", accountId: "a1" }),
+				delete: jest.fn(),
+			},
+			account: { delete: jest.fn().mockResolvedValue({ id: "a1" }) },
+		};
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [SavingsGoalsService, { provide: PrismaService, useValue: prisma }],
+		}).compile();
+		service = module.get(SavingsGoalsService);
+	});
+
+	it("deletes the backing account (which cascades to the goal and its transactions)", async () => {
+		await service.remove("g1", "p1");
+		expect(prisma.savingsGoal.findFirst).toHaveBeenCalledWith({
+			where: { id: "g1", profileId: "p1" },
+			select: { id: true, accountId: true },
+		});
+		expect(prisma.account.delete).toHaveBeenCalledWith({ where: { id: "a1" } });
+		// The savings goal itself is NOT deleted directly — it is removed by the
+		// onDelete: Cascade on SavingsGoal.account when the account is deleted.
+		expect(prisma.savingsGoal.delete).not.toHaveBeenCalled();
+	});
+
+	it("throws NotFoundException when the goal does not exist", async () => {
+		prisma.savingsGoal.findFirst.mockResolvedValue(null);
+		await expect(service.remove("g-missing", "p1")).rejects.toThrow("Savings goal not found");
+		expect(prisma.account.delete).not.toHaveBeenCalled();
+	});
+});
+
 describe("QuerySavingsGoalsDto validation", () => {
 	it("rejects an invalid sortBy value", async () => {
 		const instance = plainToInstance(QuerySavingsGoalsDto, { sortBy: "bogus" });
