@@ -59,7 +59,16 @@ export class RecurringExpensesService {
 			...(filters?.search ? { name: { contains: filters.search, mode: "insensitive" } } : {}),
 		};
 
-		const [data, total, sumResult] = await Promise.all([
+		// info is scoped to UNCLASSIFIED only, so /recurring-expenses does not
+		// duplicate the totals already exposed by /services and /subscriptions.
+		const infoWhere: Prisma.RecurringExpenseWhereInput = {
+			profileId,
+			isActive,
+			type: "UNCLASSIFIED",
+			...(filters?.search ? { name: { contains: filters.search, mode: "insensitive" } } : {}),
+		};
+
+		const [data, total, infoTotal, infoSum] = await Promise.all([
 			this.prisma.recurringExpense.findMany({
 				where,
 				orderBy: { [sortBy]: order },
@@ -67,8 +76,9 @@ export class RecurringExpensesService {
 				take: perPage,
 			}),
 			this.prisma.recurringExpense.count({ where }),
+			this.prisma.recurringExpense.count({ where: infoWhere }),
 			this.prisma.recurringExpense.aggregate({
-				where,
+				where: infoWhere,
 				_sum: { amount: true },
 			}),
 		]);
@@ -76,8 +86,8 @@ export class RecurringExpensesService {
 		return {
 			data,
 			info: {
-				total,
-				totalEstimated: Number(sumResult._sum.amount ?? 0),
+				total: infoTotal,
+				totalEstimated: Number(infoSum._sum.amount ?? 0),
 			},
 			page,
 			perPage,
