@@ -42,9 +42,9 @@ interface Period {
  * StatementGenerationService — orchestrator that lazily generates missing
  * CardStatement rows for credit cards on read.
  *
- * No-op when CREDIT_CARD_REACTIVE_ENABLED is false. Multi-period catch-up
- * limited by CREDIT_CARD_MAX_CATCH_UP_PERIODS (default 12). Single Prisma
- * transaction per card ensures all-or-nothing generation.
+ * Multi-period catch-up limited by CREDIT_CARD_MAX_CATCH_UP_PERIODS
+ * (default 12). Single Prisma transaction per card ensures all-or-nothing
+ * generation.
  */
 @Injectable()
 export class StatementGenerationService {
@@ -57,10 +57,6 @@ export class StatementGenerationService {
 	) {}
 
 	async generatePending(profileId: string): Promise<void> {
-		if (!this.isReactiveEnabled()) {
-			return;
-		}
-
 		const cards = await this.prisma.creditCard.findMany({
 			where: { account: { profileId } },
 			include: { account: true },
@@ -532,10 +528,6 @@ export class StatementGenerationService {
 		const end = new Date(periodEnd);
 		end.setHours(0, 0, 0, 0);
 		return Math.round((end.getTime() - start.getTime()) / msPerDay) + 1;
-	}
-
-	private isReactiveEnabled(): boolean {
-		return this.configService.get<string>("CREDIT_CARD_REACTIVE_ENABLED") === "true";
 	}
 
 	private getMaxCatchUpPeriods(): number {

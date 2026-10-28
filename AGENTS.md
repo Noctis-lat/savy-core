@@ -84,7 +84,7 @@ src/{domain}/
 | LoansModule | `src/loans/` | ✓ Complete | Loan tracking |
 | IncomeSourcesModule | `src/income-sources/` | ✓ Complete | Income source CRUD + bulk create, optional INCOME `categoryId` |
 | IncomeGenerationModule | `src/income-generation/` | ✓ Complete | Hourly cron (`@nestjs/schedule`) that generates INCOME transactions from active income sources in each profile's timezone |
-| RecurringExpensesModule | `src/recurring-expenses/` | ✓ Complete | Recurring expense CRUD (reactive generation pending) |
+| RecurringExpensesModule | `src/recurring-expenses/` | ✓ Complete | Recurring expense CRUD (subscriptions, services) + hourly cron generating EXPENSE transactions |
 | DashboardModule | `src/dashboard/` | ✓ Complete | Aggregated summary (net worth, active budgets, goals, credit, ...) |
 
 ### Scheduled jobs
@@ -92,6 +92,7 @@ src/{domain}/
 `ScheduleModule.forRoot()` (`@nestjs/schedule` **v6**, the Nest 11 line — v12+ targets Nest 12 and is ESM-only, which breaks this CommonJS build and Jest) is registered in `AppModule`.
 
 - `IncomeGenerationService` (`@Cron(EVERY_HOUR)`): for each active `IncomeSource`, computes paydays in the profile's IANA `timezone` from the local date of `createdAt` (inclusive) or the day after `lastGeneratedAt`, up to and including today. The cursor (`lastGeneratedAt`) skips work on hours where no payday has passed, so most hourly runs do nothing. Each payday creates an INCOME transaction (`incomeSourceId` set, dated at local noon, category from the source) and increments the destination account balance in one `$transaction` together with the cursor update. The `lastGeneratedAt` cursor only moves forward, so incomes deleted by the user are not recreated. Per-source failures are logged and do not stop the job.
+- `RecurringExpenseGenerationService` (`@Cron(EVERY_HOUR)`): for each active `RecurringExpense`, computes billing days in the profile's IANA `timezone` from the local date of `createdAt` (inclusive) or the day after `lastGeneratedAt`, up to and including today. Supports WEEKLY (weekday 1-7), BIWEEKLY (2 days of month), MONTHLY (1 day of month), and YEARLY (day of month in the `createdAt` month). Each billing day creates an EXPENSE transaction (`recurringExpenseId` set, dated at local noon, category from the expense) and adjusts the account balance — decrements for assets (DEBIT/CASH), increments for liabilities (CREDIT/LOAN) — in one `$transaction` together with the cursor update. The `lastGeneratedAt` cursor only moves forward, so expenses deleted by the user are not recreated. Per-expense failures are logged and do not stop the job.
 
 ### Shared infrastructure
 
@@ -410,7 +411,6 @@ bun run test:e2e           # Jest e2e tests
 | `DIRECT_URL` | Session pooler (migrations) | `postgresql://...:5432/postgres` |
 | `PORT` | Server port | `3001` |
 | `CORS_ORIGIN` | Allowed origins for CORS (comma-separated) | `http://localhost:3000,https://savy-web.bleakedev.workers.dev` |
-| `CREDIT_CARD_REACTIVE_ENABLED` | Feature flag for credit card reactive behavior. Only the exact string `true` enables it. Gates writes (statement generation, over-limit validation, InstallmentPlan creation, PAYMENT waterfall). Reads (`availableCredit`, `paymentDueDate`) are never gated. Default `false` | `true` |
 | `CREDIT_CARD_MAX_CATCH_UP_PERIODS` | Max missed statement periods generated in one lazy catch-up. Falls back to `12` when unset or invalid | `12` |
 
 All variables are in `.env` (gitignored). Use `.env.example` as a template.

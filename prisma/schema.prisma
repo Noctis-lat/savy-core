@@ -158,6 +158,9 @@ model Transaction {
   // Income generation: the source that generated this transaction (null for user-created)
   incomeSourceId      String?         @map("income_source_id")
 
+  // Recurring expense generation: the expense that generated this transaction (null for user-created)
+  recurringExpenseId  String?         @map("recurring_expense_id")
+
   account            Account   @relation("AccountTransactions", fields: [accountId], references: [id], onDelete: Cascade)
   destinationAccount Account?  @relation("DestinationTransactions", fields: [destinationAccountId], references: [id], onDelete: SetNull)
   category           Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
@@ -165,6 +168,7 @@ model Transaction {
   installmentPlan    InstallmentPlan?  @relation("PlanPurchase")
   billedPlan         InstallmentPlan?  @relation("PlanInstallments", fields: [installmentPlanId], references: [id], onDelete: Cascade)
   incomeSource       IncomeSource? @relation(fields: [incomeSourceId], references: [id], onDelete: SetNull)
+  recurringExpense   RecurringExpense? @relation(fields: [recurringExpenseId], references: [id], onDelete: SetNull)
 
   @@index([accountId, date])
   @@index([destinationAccountId])
@@ -172,6 +176,7 @@ model Transaction {
   @@index([statementId])
   @@index([installmentPlanId])
   @@index([incomeSourceId])
+  @@index([recurringExpenseId])
   @@map("transactions")
 }
 
@@ -455,12 +460,14 @@ model RecurringExpense {
   color       String?
   icon        String?
   isActive    Boolean                  @default(true) @map("is_active")
+  lastGeneratedAt DateTime?            @map("last_generated_at")
   createdAt   DateTime                 @default(now()) @map("created_at")
   updatedAt   DateTime                 @updatedAt @map("updated_at")
 
   profile  Profile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
   account  Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
   category Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  transactions Transaction[]
 
   @@index([profileId])
   @@index([accountId])

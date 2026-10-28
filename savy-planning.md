@@ -121,7 +121,7 @@ The goal's progress is always in sync with its account balance. No separate "sav
 - **Early payoff** → a `PAYMENT` that leaves the card balance at `<= 0` marks its ACTIVE plans `PAID_OFF` (no more installments, out of PNGI). Removing that payment later does not reopen them.
 - **Statement detail** → `GET /card-statements/:id/transactions` lists installments first, each with a plan summary (billed / paid / remaining installments, principal/interest split, remaining principal, purchase).
 - **Payment** → `Transaction PAYMENT` to the card's account → balance decreases; the payment is also applied to the latest unpaid statement (`paidAmount`, `remainingBalance`, `isPaid`).
-- **Feature flag** → all of the above writes are gated by `CREDIT_CARD_REACTIVE_ENABLED` (default `false`). `availableCredit` and `paymentDueDate` reads are never gated.
+
 
 ### IncomeSource
 
@@ -129,7 +129,7 @@ The goal's progress is always in sync with its account balance. No separate "sav
 
 ### RecurringExpense
 
-- **Billing day reached** → system generates a `Transaction EXPENSE` on the `accountId` → account balance decreases. *(PENDING implementation — will follow the same daily-cron strategy as IncomeSource)*
+- **Billing day reached** → system generates a `Transaction EXPENSE` on the `accountId` → account balance decreases (asset) or increases (liability). **Implemented** as an hourly cron (`RecurringExpenseGenerationService`): billing days are evaluated in the profile's timezone (WEEKLY = weekday 1-7 with 1 = Monday; BIWEEKLY/MONTHLY = day of month, clamped to the month's last day; YEARLY = day of month in the `createdAt` month), never before the expense's `createdAt`. The transaction uses the expense's name as description and its category. The `lastGeneratedAt` cursor only moves forward, so deleting a generated expense does not recreate it.
 
 ---
 
@@ -163,20 +163,20 @@ The API now runs on its own always-on server, so `@nestjs/schedule` cron jobs ar
 | SavingsGoalsModule | Savings goal CRUD |
 | IncomeSourcesModule | Income source CRUD + bulk create |
 | IncomeGenerationModule | Hourly cron generating INCOME transactions from income sources |
-| RecurringExpensesModule | Recurring expense CRUD (subscriptions, services) with soft + hard delete |
+| RecurringExpensesModule | Recurring expense CRUD (subscriptions, services) with soft + hard delete + hourly cron generating EXPENSE transactions |
 | DashboardModule | Analytics summary |
 
 ### To Build
 
 | Priority | Feature | Dependencies | Status |
 |---|---|---|---|
-| 1 | RecurringExpense reactive behavior — EXPENSE transaction generation on billing day | RecurringExpensesModule, TransactionsModule | **Pending** |
+| 1 | RecurringExpense reactive behavior — EXPENSE transaction generation on billing day | RecurringExpensesModule, TransactionsModule | **Implemented** (hourly cron) |
 | 2 | IncomeSource reactive behavior — INCOME transaction generation on payday | IncomeSourcesModule, TransactionsModule | **Implemented** (hourly cron) |
 | 3 | Loan reactive behavior — interest charge + payment processing | LoansModule, TransactionsModule | Pending |
-| 4 | CreditCard reactive behavior — statement generation on cut date | CreditCardsModule, CardStatementsModule | **Implemented behind `CREDIT_CARD_REACTIVE_ENABLED` (default off)** — pending manual E2E and balance-sign decision (see below) |
+| 4 | CreditCard reactive behavior — statement generation on cut date | CreditCardsModule, CardStatementsModule | **Implemented** |
 | 5 | SavingsGoal reactive behavior — auto progress from account balance | SavingsGoalsModule | Pending |
 
-> **CreditCard reactive — open items**: (1) the Banxico payment waterfall order and the simplified MSCI amortization are documented assumptions (`// ASSUMPTION — TODO` in `CreditCalculationService`). (2) Sign convention: the reactive logic and specs treat a positive CREDIT `account.balance` as debt, but `TransactionsService.applyBalance` still decrements the source balance on `EXPENSE` for every account type and `prisma/seed.ts` stores CREDIT debt as a negative balance (e.g. `-8500`). Decide and align before enabling the flag in production.
+> **CreditCard reactive — open items**: the Banxico payment waterfall order and the simplified MSCI amortization are documented assumptions (`// ASSUMPTION — TODO` in `CreditCalculationService`).
 
 > Priority order is a suggestion based on dependency chains. The actual order may change based on frontend needs.
 
