@@ -297,12 +297,7 @@ async function buildHarness(store: FakeStore, cutDay = 15) {
 		$transaction: jest.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(store.buildTx())),
 	};
 	const config = {
-		get: (key: string) =>
-			key === "CREDIT_CARD_REACTIVE_ENABLED"
-				? "true"
-				: key === "CREDIT_CARD_MAX_CATCH_UP_PERIODS"
-					? "12"
-					: undefined,
+		get: (key: string) => (key === "CREDIT_CARD_MAX_CATCH_UP_PERIODS" ? "12" : undefined),
 	};
 	const moduleRef = await Test.createTestingModule({
 		providers: [

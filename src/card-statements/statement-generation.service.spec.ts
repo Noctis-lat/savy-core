@@ -65,24 +65,8 @@ describe("StatementGenerationService", () => {
 	});
 
 	describe("generatePending", () => {
-		it("is a no-op when CREDIT_CARD_REACTIVE_ENABLED is false", async () => {
-			configService.get.mockImplementation((key: string) => {
-				if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "false";
-				if (key === "CREDIT_CARD_MAX_CATCH_UP_PERIODS") return "12";
-				return undefined;
-			});
-			prisma.creditCard.findMany.mockResolvedValue([{ id: "card-1", accountId: "acc-1" }]);
-
-			await service.generatePending("profile-1");
-
-			// Must NOT query credit cards when flag is off
-			expect(prisma.creditCard.findMany).not.toHaveBeenCalled();
-			expect(prisma.$transaction).not.toHaveBeenCalled();
-		});
-
 		it("generates a single statement when one cut date has passed with no prior statement", async () => {
 			configService.get.mockImplementation((key: string) => {
-				if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "true";
 				if (key === "CREDIT_CARD_MAX_CATCH_UP_PERIODS") return "12";
 				return undefined;
 			});
@@ -137,7 +121,6 @@ describe("StatementGenerationService", () => {
 
 		it("generates 3 statements when 3 cut dates have been missed", async () => {
 			configService.get.mockImplementation((key: string) => {
-				if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "true";
 				if (key === "CREDIT_CARD_MAX_CATCH_UP_PERIODS") return "12";
 				return undefined;
 			});
@@ -198,7 +181,6 @@ describe("StatementGenerationService", () => {
 
 		it("skips a period that already has a statement (idempotency)", async () => {
 			configService.get.mockImplementation((key: string) => {
-				if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "true";
 				if (key === "CREDIT_CARD_MAX_CATCH_UP_PERIODS") return "12";
 				return undefined;
 			});
@@ -251,7 +233,6 @@ describe("StatementGenerationService", () => {
 
 		it("uses last day of month when cutDay exceeds month length (cutDay 31 in February)", async () => {
 			configService.get.mockImplementation((key: string) => {
-				if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "true";
 				if (key === "CREDIT_CARD_MAX_CATCH_UP_PERIODS") return "12";
 				return undefined;
 			});
@@ -307,7 +288,6 @@ describe("StatementGenerationService", () => {
 
 		it("generates a statement even when there are no transactions in the period", async () => {
 			configService.get.mockImplementation((key: string) => {
-				if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "true";
 				if (key === "CREDIT_CARD_MAX_CATCH_UP_PERIODS") return "12";
 				return undefined;
 			});
@@ -392,9 +372,6 @@ describe("StatementGenerationService", () => {
 		}
 
 		async function runWithPlans(plans: unknown[]) {
-			configService.get.mockImplementation((key: string) =>
-				key === "CREDIT_CARD_REACTIVE_ENABLED" ? "true" : undefined,
-			);
 			prisma.creditCard.findMany.mockResolvedValue([card]);
 			const tx = createMockTx();
 			tx.cardStatement = {

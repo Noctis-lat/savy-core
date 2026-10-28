@@ -1,5 +1,4 @@
 import { BadRequestException } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
@@ -37,7 +36,6 @@ describe("TransactionsService", () => {
 			providers: [
 				TransactionsService,
 				{ provide: PrismaService, useValue: prisma },
-				{ provide: ConfigService, useValue: { get: jest.fn() } },
 				{ provide: CreditCalculationService, useValue: {} },
 			],
 		}).compile();
@@ -87,8 +85,7 @@ describe("TransactionsService", () => {
 // ─── Over-Limit Validation (T-035) ──────────────────────────────────────
 //
 // Spec: over-limit-validation/spec.md
-// Feature flag: CREDIT_CARD_REACTIVE_ENABLED gates all validation.
-// When the flag is off, no over-limit check runs (current CRUD-only behavior).
+// Over-limit validation always runs for EXPENSE on CREDIT accounts.
 
 describe("TransactionsService — over-limit validation (create)", () => {
 	let service: TransactionsService;
@@ -101,7 +98,6 @@ describe("TransactionsService — over-limit validation (create)", () => {
 		cardStatement: Record<string, jest.Mock>;
 		$transaction: jest.Mock;
 	};
-	let configService: { get: jest.Mock };
 
 	/** Builds a CreateTransactionDto-like input (plain object — service reads fields directly). */
 	function buildExpenseDto(accountId: string, amount: number): CreateTransactionDto {
@@ -157,13 +153,6 @@ describe("TransactionsService — over-limit validation (create)", () => {
 	}
 
 	beforeEach(async () => {
-		configService = { get: jest.fn() };
-		// Default: reactive enabled
-		configService.get.mockImplementation((key: string) => {
-			if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "true";
-			return undefined;
-		});
-
 		prisma = {
 			account: {},
 			transaction: {},
@@ -178,7 +167,6 @@ describe("TransactionsService — over-limit validation (create)", () => {
 			providers: [
 				TransactionsService,
 				{ provide: PrismaService, useValue: prisma },
-				{ provide: ConfigService, useValue: configService },
 				{ provide: CreditCalculationService, useValue: {} },
 			],
 		}).compile();
@@ -384,29 +372,6 @@ describe("TransactionsService — over-limit validation (create)", () => {
 
 		expect(tx.transaction.create).toHaveBeenCalledTimes(1);
 	});
-
-	it("(10) flag off → no over-limit validation (balance exceeds limit accepted)", async () => {
-		configService.get.mockImplementation((key: string) => {
-			if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "false";
-			return undefined;
-		});
-
-		const tx = setupCreateMocks({
-			account: {
-				id: "acc-credit",
-				type: "CREDIT",
-				balance: new Decimal(9000),
-				profileId: "p1",
-			},
-			creditCard: { creditLimit: new Decimal(10000), overLimitTolerance: new Decimal(0) },
-		});
-
-		// 9000 + 5000 = 14000 > 10000 → would be rejected if flag on, but flag is off
-		await service.create("p1", buildExpenseDto("acc-credit", 5000));
-
-		expect(tx.transaction.create).toHaveBeenCalledTimes(1);
-		expect(tx.creditCard.findFirst).not.toHaveBeenCalled();
-	});
 });
 
 // ─── InstallmentPlan Creation (T-037) ───────────────────────────────────
@@ -425,7 +390,6 @@ describe("TransactionsService — installment plan creation (create)", () => {
 		installmentPlan: Record<string, jest.Mock>;
 		$transaction: jest.Mock;
 	};
-	let configService: { get: jest.Mock };
 	let calcService: { calculateMsciMonthlyAmount: jest.Mock };
 
 	function setupCreateMocksForPlan(opts: {
@@ -468,11 +432,6 @@ describe("TransactionsService — installment plan creation (create)", () => {
 	}
 
 	beforeEach(async () => {
-		configService = { get: jest.fn() };
-		configService.get.mockImplementation((key: string) => {
-			if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "true";
-			return undefined;
-		});
 		calcService = {
 			calculateMsciMonthlyAmount: jest.fn().mockReturnValue(new Decimal(560)),
 		};
@@ -490,7 +449,6 @@ describe("TransactionsService — installment plan creation (create)", () => {
 			providers: [
 				TransactionsService,
 				{ provide: PrismaService, useValue: prisma },
-				{ provide: ConfigService, useValue: configService },
 				{ provide: CreditCalculationService, useValue: calcService },
 			],
 		}).compile();
@@ -583,34 +541,6 @@ describe("TransactionsService — installment plan creation (create)", () => {
 
 		expect(tx.installmentPlan.create).not.toHaveBeenCalled();
 	});
-
-	it("(4) flag off → no plan created even with msiMonths", async () => {
-		configService.get.mockImplementation((key: string) => {
-			if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "false";
-			return undefined;
-		});
-
-		const tx = setupCreateMocksForPlan({ amount: 6000 });
-
-		const dto = {
-			accountId: "acc-credit",
-			destinationAccountId: null,
-			categoryId: undefined,
-			type: "EXPENSE" as TxType,
-			amount: 6000,
-			description: "MSI purchase but flag off",
-			note: undefined,
-			date: undefined,
-			msiMonths: 12,
-			msiType: "MSI" as const,
-			msiRate: undefined,
-			commissionType: undefined,
-		} as unknown as CreateTransactionDto;
-
-		await service.create("p1", dto);
-
-		expect(tx.installmentPlan.create).not.toHaveBeenCalled();
-	});
 });
 
 // ─── PAYMENT Waterfall to Statement (T-039) ─────────────────────────────
@@ -630,15 +560,9 @@ describe("TransactionsService — PAYMENT waterfall to statement (create)", () =
 		cardStatement: Record<string, jest.Mock>;
 		$transaction: jest.Mock;
 	};
-	let configService: { get: jest.Mock };
 	let calcService: { applyPaymentWaterfall: jest.Mock };
 
 	beforeEach(async () => {
-		configService = { get: jest.fn() };
-		configService.get.mockImplementation((key: string) => {
-			if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "true";
-			return undefined;
-		});
 		calcService = {
 			applyPaymentWaterfall: jest.fn().mockReturnValue({
 				interestApplied: new Decimal(300),
@@ -664,7 +588,6 @@ describe("TransactionsService — PAYMENT waterfall to statement (create)", () =
 			providers: [
 				TransactionsService,
 				{ provide: PrismaService, useValue: prisma },
-				{ provide: ConfigService, useValue: configService },
 				{ provide: CreditCalculationService, useValue: calcService },
 			],
 		}).compile();
@@ -789,41 +712,6 @@ describe("TransactionsService — PAYMENT waterfall to statement (create)", () =
 		expect(tx.cardStatement.update).not.toHaveBeenCalled();
 		expect(tx.cardStatement.findFirst).toHaveBeenCalledTimes(1);
 	});
-
-	it("(3) flag off → no waterfall applied to statement", async () => {
-		configService.get.mockImplementation((key: string) => {
-			if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "false";
-			return undefined;
-		});
-
-		const tx = setupPaymentMocks({
-			sourceBalance: new Decimal(10000),
-			creditBalance: new Decimal(5000),
-			unpaidStatement: {
-				id: "stmt-unpaid",
-				balance: new Decimal(5000),
-				paidAmount: new Decimal(0),
-				interestAmount: new Decimal(300),
-			},
-		});
-
-		const dto = {
-			accountId: "acc-debit",
-			destinationAccountId: "acc-credit",
-			categoryId: undefined,
-			type: "PAYMENT" as TxType,
-			amount: 600,
-			description: "payment flag off",
-			note: undefined,
-			date: undefined,
-		} as unknown as CreateTransactionDto;
-
-		await service.create("p1", dto);
-
-		expect(tx.cardStatement.update).not.toHaveBeenCalled();
-		expect(tx.cardStatement.findFirst).not.toHaveBeenCalled();
-		expect(calcService.applyPaymentWaterfall).not.toHaveBeenCalled();
-	});
 });
 
 // ─── Sign Convention: CREDIT balance = positive debt (bug fix) ──────────
@@ -844,15 +732,8 @@ describe("TransactionsService — applyBalance direction by account type (sign c
 		cardStatement: Record<string, jest.Mock>;
 		$transaction: jest.Mock;
 	};
-	let configService: { get: jest.Mock };
 
 	beforeEach(async () => {
-		configService = { get: jest.fn() };
-		configService.get.mockImplementation((key: string) => {
-			if (key === "CREDIT_CARD_REACTIVE_ENABLED") return "false";
-			return undefined;
-		});
-
 		prisma = {
 			account: {},
 			transaction: {},
@@ -867,7 +748,6 @@ describe("TransactionsService — applyBalance direction by account type (sign c
 			providers: [
 				TransactionsService,
 				{ provide: PrismaService, useValue: prisma },
-				{ provide: ConfigService, useValue: configService },
 				{ provide: CreditCalculationService, useValue: {} },
 			],
 		}).compile();
@@ -1127,18 +1007,13 @@ describe("QueryTransactionsDto validation", () => {
 describe("TransactionsService — early payoff marks installment plans PAID_OFF (create)", () => {
 	let service: TransactionsService;
 	let prisma: { $transaction: jest.Mock };
-	let configService: { get: jest.Mock };
 
 	beforeEach(async () => {
-		configService = {
-			get: jest.fn((key: string) => (key === "CREDIT_CARD_REACTIVE_ENABLED" ? "true" : undefined)),
-		};
 		prisma = { $transaction: jest.fn() };
 		const module: TestingModule = await Test.createTestingModule({
 			providers: [
 				TransactionsService,
 				{ provide: PrismaService, useValue: prisma },
-				{ provide: ConfigService, useValue: configService },
 				{ provide: CreditCalculationService, useValue: {} },
 			],
 		}).compile();
@@ -1214,15 +1089,6 @@ describe("TransactionsService — early payoff marks installment plans PAID_OFF 
 
 		expect(tx.installmentPlan.updateMany).not.toHaveBeenCalled();
 	});
-
-	it("(5) flag off → plans are never paid off", async () => {
-		configService.get.mockReturnValue("false");
-		const tx = setup("CREDIT", new Decimal(0));
-
-		await service.create("p1", paymentDto(3000));
-
-		expect(tx.installmentPlan.updateMany).not.toHaveBeenCalled();
-	});
 });
 
 // ─── INSTALLMENT is system-only (T-070) ─────────────────────────────────
@@ -1250,14 +1116,13 @@ describe("TransactionsService — INSTALLMENT rows are read-only", () => {
 			providers: [
 				TransactionsService,
 				{ provide: PrismaService, useValue: prisma },
-				{ provide: ConfigService, useValue: { get: jest.fn() } },
 				{ provide: CreditCalculationService, useValue: {} },
 			],
 		}).compile();
 		service = module.get(TransactionsService);
 	});
 
-	function row(type: string) {
+	function row(type: string, statementId: string | null = null) {
 		return {
 			id: "tx-1",
 			accountId: "acc-credit",
@@ -1268,6 +1133,7 @@ describe("TransactionsService — INSTALLMENT rows are read-only", () => {
 			description: "Laptop (1/3)",
 			note: null,
 			date: new Date(2026, 9, 15),
+			statementId,
 		};
 	}
 
@@ -1281,6 +1147,21 @@ describe("TransactionsService — INSTALLMENT rows are read-only", () => {
 
 	it("rejects deleting an INSTALLMENT transaction with 400", async () => {
 		prisma.transaction.findFirst.mockResolvedValue(row("INSTALLMENT"));
+
+		await expect(service.remove("tx-1", "p1")).rejects.toThrow(BadRequestException);
+		expect(tx.transaction.delete).not.toHaveBeenCalled();
+	});
+
+	it("rejects updating a transaction linked to a generated statement with 400", async () => {
+		prisma.transaction.findFirst.mockResolvedValue(row("EXPENSE", "stmt-1"));
+
+		await expect(service.update("tx-1", "p1", { amount: 1 })).rejects.toThrow(BadRequestException);
+		expect(tx.account.update).not.toHaveBeenCalled();
+		expect(tx.transaction.update).not.toHaveBeenCalled();
+	});
+
+	it("rejects deleting a transaction linked to a generated statement with 400", async () => {
+		prisma.transaction.findFirst.mockResolvedValue(row("EXPENSE", "stmt-1"));
 
 		await expect(service.remove("tx-1", "p1")).rejects.toThrow(BadRequestException);
 		expect(tx.transaction.delete).not.toHaveBeenCalled();
