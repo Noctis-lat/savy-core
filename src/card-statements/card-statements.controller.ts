@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Query } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../auth/current-user.decorator";
 import {
@@ -11,7 +11,6 @@ import type { Profile } from "../generated/prisma/client";
 import { CardStatementsService } from "./card-statements.service";
 import {
 	CardStatementResponseDto,
-	CreateCardStatementDto,
 	QueryCardStatementsDto,
 	StatementTransactionResponseDto,
 	UpdateCardStatementDto,
@@ -68,17 +67,6 @@ export class CardStatementsController {
 	@ApiErrorResponse(500, "Internal server error")
 	async findTransactions(@Param("id") id: string, @CurrentUser() profile: Profile) {
 		return this.cardStatementsService.findTransactions(id, profile.id);
-	}
-
-	@Post()
-	@ApiOperation({ summary: "Create a new card statement" })
-	@ApiSuccessResponse(201, CardStatementResponseDto, "Returns the created card statement")
-	@ApiErrorResponse(400, "Validation error or invalid request data")
-	@ApiErrorResponse(401, "Unauthorized")
-	@ApiErrorResponse(404, "Credit card not found")
-	@ApiErrorResponse(500, "Internal server error")
-	async create(@CurrentUser() profile: Profile, @Body() dto: CreateCardStatementDto) {
-		return this.cardStatementsService.create(profile.id, dto);
 	}
 
 	@Patch(":id")

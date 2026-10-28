@@ -5,7 +5,6 @@ import {
 	IsBooleanString,
 	IsDateString,
 	IsEnum,
-	IsNotEmpty,
 	IsNumber,
 	IsOptional,
 	IsString,
@@ -22,68 +21,6 @@ enum CardStatementSortBy {
 enum SortOrder {
 	asc = "asc",
 	desc = "desc",
-}
-
-export class CreateCardStatementDto {
-	@ApiProperty({ example: "credit-card-uuid", description: "Credit card ID" })
-	@IsString()
-	@IsNotEmpty()
-	creditCardId!: string;
-
-	@ApiProperty({ example: "2026-07-01T00:00:00.000Z", description: "Statement period start" })
-	@IsDateString()
-	periodStart!: string;
-
-	@ApiProperty({ example: "2026-07-31T23:59:59.999Z", description: "Statement period end" })
-	@IsDateString()
-	periodEnd!: string;
-
-	/**
-	 * @deprecated When CREDIT_CARD_REACTIVE_ENABLED=true, these calculated fields
-	 * are rejected. Statements are auto-generated on read. Only accepted when the
-	 * feature flag is off (legacy CRUD mode).
-	 */
-	@ApiProperty({
-		example: 15000,
-		description: "Statement balance (deprecated when reactive behavior enabled)",
-		deprecated: true,
-	})
-	@Type(() => Number)
-	@IsNumber()
-	@Min(0)
-	balance!: number;
-
-	@ApiProperty({
-		example: 750,
-		description: "Minimum payment (deprecated when reactive behavior enabled)",
-		deprecated: true,
-	})
-	@Type(() => Number)
-	@IsNumber()
-	@Min(0)
-	minPayment!: number;
-
-	@ApiProperty({
-		example: 15000,
-		description: "No-interest payment (deprecated when reactive behavior enabled)",
-		deprecated: true,
-	})
-	@Type(() => Number)
-	@IsNumber()
-	@Min(0)
-	noInterestPayment!: number;
-
-	@ApiPropertyOptional({
-		example: 2250,
-		description: "Interest amount (deprecated when reactive behavior enabled)",
-		required: false,
-		deprecated: true,
-	})
-	@IsOptional()
-	@Type(() => Number)
-	@IsNumber()
-	@Min(0)
-	interestAmount?: number;
 }
 
 export class UpdateCardStatementDto {
