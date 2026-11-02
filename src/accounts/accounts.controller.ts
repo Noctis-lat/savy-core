@@ -157,9 +157,16 @@ export class AccountsController {
 	}
 
 	@Patch(":id")
-	@ApiOperation({ summary: "Update an account by ID" })
+	@ApiOperation({
+		summary: "Update an account by ID",
+		description:
+			"name, color and icon cannot be edited on accounts linked to a credit card, loan or savings goal; edit the owning entity instead.",
+	})
 	@ApiSuccessResponse(200, AccountResponseDto, "Returns the updated account")
-	@ApiErrorResponse(400, "Validation error or invalid request data")
+	@ApiErrorResponse(
+		400,
+		"Validation error, or name/color/icon sent for an account linked to a credit card, loan or savings goal",
+	)
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Account not found")
 	@ApiErrorResponse(500, "Internal server error")

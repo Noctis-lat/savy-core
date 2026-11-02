@@ -345,7 +345,9 @@ describe("BanksService.findCreditCardsByBank", () => {
 			paymentDay: null,
 			paymentDueDays,
 			interestRate: D(0.36),
-			noInterestMonths: 0,
+			name: "Card",
+			color: null,
+			icon: null,
 		},
 	});
 

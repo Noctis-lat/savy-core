@@ -320,7 +320,10 @@ model CreditCard {
   creditLimit      Decimal  @map("credit_limit") @db.Decimal(12, 2)
   cutDay           Int      @map("cut_day") // 1-31
   interestRate     Decimal  @map("interest_rate") @db.Decimal(5, 4) // annual rate as decimal (e.g. 0.3600 = 36%)
-  noInterestMonths Int      @default(0) @map("no_interest_months")
+  // Entity-superior identity: the card owns name/color/icon and syncs them to its account
+  name             String
+  color            String?
+  icon             String?
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 

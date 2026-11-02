@@ -121,18 +121,27 @@ export class SavingsGoalsService {
 		// The frontend creates the account first, then the savings goal, so the goal
 		// should mirror the account's visual identity unless explicitly overridden.
 		const account = await this.validateAccount(dto.accountId, profileId);
+		const identity = {
+			name: dto.name,
+			color: dto.color ?? account.color,
+			icon: dto.icon ?? account.icon,
+		};
 
-		const goal = await this.prisma.savingsGoal.create({
-			data: {
-				profileId,
-				accountId: dto.accountId,
-				name: dto.name,
-				targetAmount: dto.targetAmount,
-				deadline: dto.deadline ? new Date(dto.deadline) : null,
-				color: dto.color ?? account.color,
-				icon: dto.icon ?? account.icon,
-			},
-			include: { account: { select: { balance: true } } },
+		// Entity-superior: the goal is the source of truth for name/color/icon, so the
+		// account is aligned to the goal's final identity in the same transaction.
+		const goal = await this.prisma.$transaction(async (tx) => {
+			const created = await tx.savingsGoal.create({
+				data: {
+					profileId,
+					accountId: dto.accountId,
+					...identity,
+					targetAmount: dto.targetAmount,
+					deadline: dto.deadline ? new Date(dto.deadline) : null,
+				},
+				include: { account: { select: { balance: true } } },
+			});
+			await tx.account.update({ where: { id: dto.accountId }, data: identity });
+			return created;
 		});
 		return this.withComputed(goal);
 	}
@@ -153,22 +162,40 @@ export class SavingsGoalsService {
 			await this.validateAccount(dto.accountId, profileId);
 		}
 
-		const goal = await this.prisma.savingsGoal.update({
-			where: { id },
-			data: {
-				accountId: dto.accountId ?? existing.accountId,
-				name: dto.name ?? existing.name,
-				targetAmount: dto.targetAmount ?? existing.targetAmount,
-				deadline:
-					dto.deadline !== undefined
-						? dto.deadline
-							? new Date(dto.deadline)
-							: null
-						: existing.deadline,
-				color: dto.color ?? existing.color,
-				icon: dto.icon !== undefined ? dto.icon : existing.icon,
-			},
-			include: { account: { select: { balance: true } } },
+		const accountId = dto.accountId ?? existing.accountId;
+		const identity = {
+			name: dto.name ?? existing.name,
+			color: dto.color ?? existing.color,
+			icon: dto.icon !== undefined ? dto.icon : existing.icon,
+		};
+		const data: Prisma.SavingsGoalUncheckedUpdateInput = {
+			accountId,
+			...identity,
+			targetAmount: dto.targetAmount ?? existing.targetAmount,
+			deadline:
+				dto.deadline !== undefined
+					? dto.deadline
+						? new Date(dto.deadline)
+						: null
+					: existing.deadline,
+		};
+		const include = { account: { select: { balance: true } } } as const;
+
+		const identityChanged =
+			dto.name !== undefined ||
+			dto.color !== undefined ||
+			dto.icon !== undefined ||
+			accountId !== existing.accountId;
+		if (!identityChanged) {
+			const goal = await this.prisma.savingsGoal.update({ where: { id }, data, include });
+			return this.withComputed(goal);
+		}
+
+		// Entity-superior: sync the goal's identity one-way to its account, atomically.
+		const goal = await this.prisma.$transaction(async (tx) => {
+			const updated = await tx.savingsGoal.update({ where: { id }, data, include });
+			await tx.account.update({ where: { id: accountId }, data: identity });
+			return updated;
 		});
 		return this.withComputed(goal);
 	}

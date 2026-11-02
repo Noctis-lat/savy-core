@@ -339,6 +339,8 @@ See the Auth Architecture section. The key point: Supabase uses ES256, the JWT s
 - Soft delete with `isActive: false` instead of hard delete (for Account). Budget and IncomeSource: `DELETE` is permanent, deactivation goes through `PATCH /:id/deactivate`
 - Throw `NotFoundException` when a resource doesn't exist or doesn't belong to the user
 - Return Prisma entities directly (the `ValidationPipe` with `transform` handles serialization)
+- **Entity-superior pattern**: for `CreditCard`, `SavingsGoal` and `Loan` (Loan pending implementation), the backing `Account` is only a logical resource. The entity is the source of truth for `name`, `color`, `icon`. Sync is one-way (entity -> account) and runs in a single `this.prisma.$transaction` with the entity write. `PATCH /accounts/:id` rejects `name`/`color`/`icon` with `400` when the account is linked to a credit card, loan or savings goal; other fields (e.g. `bankId`, `balance`) remain editable. A credit card copies its identity from the account on create, then owns it
+- **Credit card payment day**: clients send `paymentDay`; the API converts it to the `paymentDueDays` offset (`calculatePaymentDueDays` in `src/credit-cards/calculations/payment-due-days.util.ts`) and never persists `paymentDay`. Changing only `cutDay` keeps the offset
 
 ### General
 

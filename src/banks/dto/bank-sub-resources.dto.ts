@@ -10,6 +10,15 @@ export class BankCreditCardResponseDto {
 	@ApiProperty({ example: "BBVA Platinum", description: "Account display name" })
 	accountName!: string;
 
+	@ApiProperty({ example: "BBVA Platinum", description: "Credit card name (source of truth)" })
+	name!: string;
+
+	@ApiPropertyOptional({ example: "#1E40AF", description: "Credit card color", nullable: true })
+	color!: string | null;
+
+	@ApiPropertyOptional({ example: "credit-card", description: "Credit card icon", nullable: true })
+	icon!: string | null;
+
 	@ApiProperty({ example: "5000000", description: "Current account balance (Decimal)" })
 	balance!: unknown;
 
@@ -41,9 +50,6 @@ export class BankCreditCardResponseDto {
 
 	@ApiProperty({ example: "0.3600", description: "Annual interest rate (Decimal)" })
 	interestRate!: unknown;
-
-	@ApiProperty({ example: 0, description: "Months at no interest" })
-	noInterestMonths!: number;
 
 	@ApiProperty({ example: "2026-01-01T00:00:00.000Z", description: "Creation date" })
 	createdAt!: Date;

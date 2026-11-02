@@ -213,21 +213,25 @@ async function main() {
 	await prisma.creditCard.create({
 		data: {
 			accountId: acc4.id,
+			name: acc4.name,
+			color: acc4.color,
+			icon: acc4.icon,
 			creditLimit: 50000.0,
 			cutDay: 15,
-			paymentDay: 25,
+			paymentDueDays: 10,
 			interestRate: 0.36,
-			noInterestMonths: 12,
 		},
 	});
 	await prisma.creditCard.create({
 		data: {
 			accountId: acc7.id,
+			name: acc7.name,
+			color: acc7.color,
+			icon: acc7.icon,
 			creditLimit: 30000.0,
 			cutDay: 5,
-			paymentDay: 15,
+			paymentDueDays: 10,
 			interestRate: 0.42,
-			noInterestMonths: 6,
 		},
 	});
 	console.log("Created 2 credit cards.");

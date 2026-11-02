@@ -170,7 +170,8 @@ describe("SavingsGoalsService (create color/icon inheritance)", () => {
 	let service: SavingsGoalsService;
 	let prisma: {
 		savingsGoal: { findMany: jest.Mock; create: jest.Mock };
-		account: { findFirst: jest.Mock };
+		account: { findFirst: jest.Mock; update: jest.Mock };
+		$transaction: jest.Mock;
 	};
 
 	beforeEach(async () => {
@@ -195,7 +196,9 @@ describe("SavingsGoalsService (create color/icon inheritance)", () => {
 				findFirst: jest
 					.fn()
 					.mockResolvedValue({ id: "a1", type: "DEBIT", color: "#10B981", icon: "wallet" }),
+				update: jest.fn().mockResolvedValue({}),
 			},
+			$transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
 		};
 		const module: TestingModule = await Test.createTestingModule({
 			providers: [SavingsGoalsService, { provide: PrismaService, useValue: prisma }],
@@ -237,6 +240,91 @@ describe("SavingsGoalsService (create color/icon inheritance)", () => {
 		const data = prisma.savingsGoal.create.mock.calls[0][0].data;
 		expect(data.color).toBeNull();
 		expect(data.icon).toBeNull();
+	});
+
+	it("syncs the goal's final name/color/icon to the account inside a transaction", async () => {
+		await service.create("p1", {
+			accountId: "a1",
+			name: "Fondo",
+			targetAmount: 1000,
+			icon: "plane",
+		});
+		expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+		expect(prisma.account.update).toHaveBeenCalledWith({
+			where: { id: "a1" },
+			data: { name: "Fondo", color: "#10B981", icon: "plane" },
+		});
+	});
+});
+
+describe("SavingsGoalsService (update identity sync)", () => {
+	let service: SavingsGoalsService;
+	let prisma: {
+		savingsGoal: { findFirst: jest.Mock; update: jest.Mock };
+		account: { findFirst: jest.Mock; update: jest.Mock };
+		$transaction: jest.Mock;
+	};
+
+	const existing = {
+		id: "g1",
+		profileId: "p1",
+		accountId: "a1",
+		name: "Fondo",
+		targetAmount: { toString: () => "1000" } as unknown as object,
+		deadline: null,
+		color: "#10B981",
+		icon: "wallet",
+		createdAt: new Date(),
+		updatedAt: new Date(),
+	};
+
+	beforeEach(async () => {
+		prisma = {
+			savingsGoal: {
+				findFirst: jest.fn().mockResolvedValue(existing),
+				update: jest.fn().mockImplementation(async (args: { data: Record<string, unknown> }) => ({
+					...existing,
+					...args.data,
+					account: { balance: { toString: () => "0" } as unknown as object },
+				})),
+			},
+			account: {
+				findFirst: jest
+					.fn()
+					.mockResolvedValue({ id: "a2", type: "DEBIT", color: null, icon: null }),
+				update: jest.fn().mockResolvedValue({}),
+			},
+			$transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
+		};
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [SavingsGoalsService, { provide: PrismaService, useValue: prisma }],
+		}).compile();
+		service = module.get(SavingsGoalsService);
+	});
+
+	it("updates the goal and its account in one transaction when identity changes", async () => {
+		const goal = await service.update("g1", "p1", { name: "Viaje", color: "#FF0000" });
+		expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+		expect(prisma.account.update).toHaveBeenCalledWith({
+			where: { id: "a1" },
+			data: { name: "Viaje", color: "#FF0000", icon: "wallet" },
+		});
+		expect(goal.name).toBe("Viaje");
+	});
+
+	it("syncs identity to the new account when accountId changes", async () => {
+		await service.update("g1", "p1", { accountId: "a2" });
+		expect(prisma.account.update).toHaveBeenCalledWith({
+			where: { id: "a2" },
+			data: { name: "Fondo", color: "#10B981", icon: "wallet" },
+		});
+	});
+
+	it("skips the account sync when identity is unchanged", async () => {
+		await service.update("g1", "p1", { targetAmount: 2000 });
+		expect(prisma.$transaction).not.toHaveBeenCalled();
+		expect(prisma.account.update).not.toHaveBeenCalled();
+		expect(prisma.savingsGoal.update).toHaveBeenCalledTimes(1);
 	});
 });
 

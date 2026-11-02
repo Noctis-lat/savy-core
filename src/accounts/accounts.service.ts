@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
+import {
+	BadRequestException,
+	Injectable,
+	NotFoundException,
+	UnprocessableEntityException,
+} from "@nestjs/common";
 import type { Period } from "../common/utils/period.util";
 import { computePeriodRange, PERIODS } from "../common/utils/period.util";
 import type {
@@ -141,6 +146,7 @@ export class AccountsService {
 
 	async update(id: string, profileId: string, dto: UpdateAccountDto): Promise<Account> {
 		await this.findOne(id, profileId);
+		await this.assertIdentityEditable(id, dto);
 
 		if (dto.bankId) {
 			await this.validateBankOwnership(dto.bankId, profileId);
@@ -150,6 +156,42 @@ export class AccountsService {
 			where: { id },
 			data: dto,
 		});
+	}
+
+	/**
+	 * Entity-superior rule: an account backing a credit card, loan or savings goal is a
+	 * logical resource. The entity owns name/color/icon and syncs them one-way to the
+	 * account, so those fields cannot be edited on the account directly.
+	 */
+	private async assertIdentityEditable(id: string, dto: UpdateAccountDto): Promise<void> {
+		if (dto.name === undefined && dto.color === undefined && dto.icon === undefined) {
+			return;
+		}
+
+		const links = await this.prisma.account.findUnique({
+			where: { id },
+			select: {
+				creditCard: { select: { id: true } },
+				loan: { select: { id: true } },
+				_count: { select: { savingsGoals: true } },
+			},
+		});
+		if (!links) {
+			return;
+		}
+
+		const owner = links.creditCard
+			? "credit card"
+			: links.loan
+				? "loan"
+				: links._count.savingsGoals > 0
+					? "savings goal"
+					: null;
+		if (owner) {
+			throw new BadRequestException(
+				`This account is linked to a ${owner}; edit name, color and icon on the ${owner} instead`,
+			);
+		}
 	}
 
 	async remove(id: string, profileId: string): Promise<void> {

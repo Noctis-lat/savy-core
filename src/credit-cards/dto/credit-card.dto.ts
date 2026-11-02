@@ -23,7 +23,10 @@ enum SortOrder {
 }
 
 export class CreateCreditCardDto {
-	@ApiProperty({ example: "account-uuid", description: "Account ID (must be type CREDIT)" })
+	@ApiProperty({
+		example: "account-uuid",
+		description: "Account ID (must be type CREDIT). The card inherits its name/color/icon.",
+	})
 	@IsString()
 	@IsNotEmpty()
 	accountId!: string;
@@ -41,54 +44,22 @@ export class CreateCreditCardDto {
 	@Max(31)
 	cutDay!: number;
 
-	@ApiPropertyOptional({
-		example: 20,
-		description: "Payment due days offset from cut day (replaces paymentDay). Default 20.",
+	@ApiProperty({
+		example: 5,
+		description:
+			"Payment day of the month (1-31). Converted server-side into paymentDueDays (offset from cut day).",
 	})
-	@IsOptional()
 	@Type(() => Number)
 	@IsInt()
 	@Min(1)
 	@Max(31)
-	paymentDueDays?: number;
-
-	@ApiPropertyOptional({
-		example: 25,
-		description: "Deprecated: fixed payment day of the month (1-31). Use paymentDueDays instead.",
-	})
-	@IsOptional()
-	@Type(() => Number)
-	@IsInt()
-	@Min(1)
-	@Max(31)
-	paymentDay?: number;
-
-	@ApiPropertyOptional({
-		example: 0,
-		description: "Over-limit tolerance (amount above credit limit allowed for EXPENSE). Default 0.",
-	})
-	@IsOptional()
-	@Type(() => Number)
-	@IsNumber()
-	@Min(0)
-	overLimitTolerance?: number;
+	paymentDay!: number;
 
 	@ApiProperty({ example: 0.36, description: "Annual interest rate as decimal (0.36 = 36%)" })
 	@Type(() => Number)
 	@IsNumber()
 	@Min(0)
 	interestRate!: number;
-
-	@ApiPropertyOptional({
-		example: 12,
-		description: "Number of months without interest (promotional)",
-		required: false,
-	})
-	@IsOptional()
-	@Type(() => Number)
-	@IsInt()
-	@Min(0)
-	noInterestMonths?: number;
 }
 
 export class UpdateCreditCardDto {
@@ -99,7 +70,11 @@ export class UpdateCreditCardDto {
 	@Min(0)
 	creditLimit?: number;
 
-	@ApiPropertyOptional({ example: 15, description: "Cut day of the month (1-31)" })
+	@ApiPropertyOptional({
+		example: 15,
+		description:
+			"Cut day of the month (1-31). Changing only the cut day keeps the paymentDueDays offset.",
+	})
 	@IsOptional()
 	@Type(() => Number)
 	@IsInt()
@@ -108,19 +83,9 @@ export class UpdateCreditCardDto {
 	cutDay?: number;
 
 	@ApiPropertyOptional({
-		example: 20,
-		description: "Payment due days offset from cut day (replaces paymentDay). Default 20.",
-	})
-	@IsOptional()
-	@Type(() => Number)
-	@IsInt()
-	@Min(1)
-	@Max(31)
-	paymentDueDays?: number;
-
-	@ApiPropertyOptional({
-		example: 25,
-		description: "Deprecated: fixed payment day of the month (1-31). Use paymentDueDays instead.",
+		example: 5,
+		description:
+			"Payment day of the month (1-31). Recomputes paymentDueDays from the (new or current) cut day.",
 	})
 	@IsOptional()
 	@Type(() => Number)
@@ -129,16 +94,6 @@ export class UpdateCreditCardDto {
 	@Max(31)
 	paymentDay?: number;
 
-	@ApiPropertyOptional({
-		example: 0,
-		description: "Over-limit tolerance amount. Default 0.",
-	})
-	@IsOptional()
-	@Type(() => Number)
-	@IsNumber()
-	@Min(0)
-	overLimitTolerance?: number;
-
 	@ApiPropertyOptional({ example: 0.36, description: "Annual interest rate as decimal" })
 	@IsOptional()
 	@Type(() => Number)
@@ -146,12 +101,30 @@ export class UpdateCreditCardDto {
 	@Min(0)
 	interestRate?: number;
 
-	@ApiPropertyOptional({ example: 12, description: "Number of months without interest" })
+	@ApiPropertyOptional({
+		example: "Visa Oro",
+		description: "Card name (synced to the linked account)",
+	})
 	@IsOptional()
-	@Type(() => Number)
-	@IsInt()
-	@Min(0)
-	noInterestMonths?: number;
+	@IsString()
+	@IsNotEmpty()
+	name?: string;
+
+	@ApiPropertyOptional({
+		example: "#1E40AF",
+		description: "Card color (synced to the linked account)",
+	})
+	@IsOptional()
+	@IsString()
+	color?: string;
+
+	@ApiPropertyOptional({
+		example: "credit-card",
+		description: "Card icon (synced to the linked account)",
+	})
+	@IsOptional()
+	@IsString()
+	icon?: string;
 }
 
 export class CreditCardResponseDto {
@@ -161,6 +134,15 @@ export class CreditCardResponseDto {
 	@ApiProperty({ example: "account-uuid", description: "Associated account ID" })
 	accountId!: string;
 
+	@ApiProperty({ example: "Visa Oro", description: "Card name (source of truth for the account)" })
+	name!: string;
+
+	@ApiPropertyOptional({ example: "#1E40AF", description: "Card color", nullable: true })
+	color!: string | null;
+
+	@ApiPropertyOptional({ example: "credit-card", description: "Card icon", nullable: true })
+	icon!: string | null;
+
 	@ApiProperty({ example: 50000, description: "Credit limit" })
 	creditLimit!: number;
 
@@ -169,13 +151,13 @@ export class CreditCardResponseDto {
 
 	@ApiPropertyOptional({
 		example: 20,
-		description: "Payment due days offset from cut day (replaces deprecated paymentDay)",
+		description: "Payment due days offset from cut day (computed server-side from paymentDay)",
 	})
 	paymentDueDays?: number;
 
 	@ApiPropertyOptional({
 		example: 25,
-		description: "Deprecated: fixed payment day of the month. Use paymentDueDays instead.",
+		description: "Deprecated: legacy fixed payment day. No longer written; use paymentDueDays.",
 	})
 	paymentDay?: number;
 
@@ -184,9 +166,6 @@ export class CreditCardResponseDto {
 
 	@ApiProperty({ example: 0.36, description: "Annual interest rate as decimal" })
 	interestRate!: number;
-
-	@ApiProperty({ example: 12, description: "Number of months without interest" })
-	noInterestMonths!: number;
 
 	@ApiProperty({
 		example: 7000.0,
@@ -269,7 +248,7 @@ export class CreditCardListResponseDto {
 export class QueryCreditCardsDto {
 	@ApiPropertyOptional({
 		example: "visa",
-		description: "Search by associated account name (case-insensitive)",
+		description: "Search by credit card name (case-insensitive)",
 	})
 	@IsOptional()
 	@IsString()

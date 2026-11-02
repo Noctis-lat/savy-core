@@ -1,3 +1,4 @@
+import { BadRequestException } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
@@ -175,5 +176,62 @@ describe("QueryAccountsDto validation", () => {
 		const instance = plainToInstance(QueryAccountsDto, { perPage: 101 });
 		const errors = await validate(instance, { whitelist: true, forbidNonWhitelisted: true });
 		expect(errors.some((e) => e.property === "perPage")).toBe(true);
+	});
+});
+
+describe("AccountsService — entity-superior identity guard", () => {
+	let service: AccountsService;
+	let prisma: {
+		account: { findFirst: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
+	};
+
+	const noLinks = { creditCard: null, loan: null, _count: { savingsGoals: 0 } };
+
+	beforeEach(async () => {
+		prisma = {
+			account: {
+				findFirst: jest.fn().mockResolvedValue({ id: "acct-1", profileId: "p1" }),
+				findUnique: jest.fn().mockResolvedValue(noLinks),
+				update: jest.fn().mockResolvedValue({ id: "acct-1" }),
+			},
+		};
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [AccountsService, { provide: PrismaService, useValue: prisma }],
+		}).compile();
+		service = module.get(AccountsService);
+	});
+
+	it.each([
+		["credit card", { ...noLinks, creditCard: { id: "card-1" } }],
+		["loan", { ...noLinks, loan: { id: "loan-1" } }],
+		["savings goal", { ...noLinks, _count: { savingsGoals: 1 } }],
+	])("rejects name/color/icon for an account linked to a %s", async (owner, links) => {
+		prisma.account.findUnique.mockResolvedValue(links);
+		for (const dto of [{ name: "New" }, { color: "#fff" }, { icon: "star" }]) {
+			await expect(service.update("acct-1", "p1", dto)).rejects.toThrow(
+				new BadRequestException(
+					`This account is linked to a ${owner}; edit name, color and icon on the ${owner} instead`,
+				),
+			);
+		}
+		expect(prisma.account.update).not.toHaveBeenCalled();
+	});
+
+	it("allows other fields on a linked account without checking links", async () => {
+		prisma.account.findUnique.mockResolvedValue({ ...noLinks, creditCard: { id: "card-1" } });
+		await service.update("acct-1", "p1", { balance: 500 });
+		expect(prisma.account.findUnique).not.toHaveBeenCalled();
+		expect(prisma.account.update).toHaveBeenCalledWith({
+			where: { id: "acct-1" },
+			data: { balance: 500 },
+		});
+	});
+
+	it("allows name/color/icon on a plain account", async () => {
+		await service.update("acct-1", "p1", { name: "Wallet", color: "#000", icon: "wallet" });
+		expect(prisma.account.update).toHaveBeenCalledWith({
+			where: { id: "acct-1" },
+			data: { name: "Wallet", color: "#000", icon: "wallet" },
+		});
 	});
 });
