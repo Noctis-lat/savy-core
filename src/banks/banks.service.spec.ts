@@ -369,9 +369,9 @@ describe("BanksService.findCreditCardsByBank", () => {
 		const cards = await service.findCreditCardsByBank("bank-1", "p1");
 
 		expect(cards).toHaveLength(2);
-		expect(cards[0].availableCredit).toBe("8000.00");
+		expect(cards[0].availableCredit).toBe(8000);
 		expect(cards[0].paymentDueDays).toBe(20);
-		expect(cards[1].availableCredit).toBe("0.00");
+		expect(cards[1].availableCredit).toBe(0);
 		expect(cards[1].paymentDueDays).toBe(15);
 	});
 
@@ -384,7 +384,7 @@ describe("BanksService.findCreditCardsByBank", () => {
 
 		const cards = await service.findCreditCardsByBank("bank-1", "p1");
 
-		expect(cards.map((c) => c.availableCredit)).toEqual(["-2000.00", "11000.00", "6666.67"]);
+		expect(cards.map((c) => c.availableCredit)).toEqual([-2000, 11000, 6666.67]);
 		// Null paymentDueDays falls back to the default offset of 20 days
 		expect(cards[2].paymentDueDays).toBe(20);
 	});

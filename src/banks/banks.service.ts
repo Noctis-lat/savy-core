@@ -197,7 +197,7 @@ export class BanksService {
 					accountName: a.name,
 					accountId: a.id,
 					balance: a.balance,
-					availableCredit: availableCredit.toFixed(2),
+					availableCredit: availableCredit.toNumber(),
 					paymentDueDays: card.paymentDueDays ?? DEFAULT_PAYMENT_DUE_DAYS,
 				},
 			];

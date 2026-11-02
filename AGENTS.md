@@ -225,6 +225,7 @@ Both point to the same Supabase Postgres instance. The transaction pooler is for
 - **Column names**: camelCase in TS, snake_case in DB via `@map("column_name")`
 - **IDs**: `String @id @default(uuid())` — UUIDs, not auto-increment
 - **Money**: `Decimal @db.Decimal(12, 2)` — never use Float for money
+- **Money serialization (API responses)**: all monetary amounts in API responses MUST be `number` (decimal), never `string`. Convert Prisma `Decimal` with `.toNumber()` or `Number()` before returning. Do NOT use `.toFixed()` (returns string). Prisma `Decimal` serializes as string in JSON by default — always convert explicitly
 - **Interest rates**: `Decimal @db.Decimal(5, 4)` — stored as decimal (0.3600 = 36%)
 - **Soft delete**: `isActive Boolean` flag (used on Account). Budget and IncomeSource expose `PATCH /:id/deactivate` + `PATCH /:id/activate` for the reversible state and `DELETE` for permanent removal
 - **Cascade**: `onDelete: Cascade` on user-owned resources, `onDelete: SetNull` on optional FKs
@@ -346,6 +347,7 @@ See the Auth Architecture section. The key point: Supabase uses ES256, the JWT s
 - `ValidationPipe` is global with `whitelist`, `forbidNonWhitelisted`, `transform`
 - Pino logger with pino-pretty in dev, raw JSON in production
 - Swagger at `/api/docs`, spec JSON at `/api/docs-json`
+- **Money in API responses is always `number` (decimal), never `string`** — convert Prisma `Decimal` with `.toNumber()` or `Number()` before returning. Do NOT use `.toFixed()`. Never return Prisma `Decimal` entities directly (they serialize as string in JSON).
 
 ### Naming
 

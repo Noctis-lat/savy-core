@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import type { Account, CreditCard } from "../generated/prisma/client";
+import type { Account, CardStatement, CreditCard } from "../generated/prisma/client";
 import { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateCreditCardDto, UpdateCreditCardDto } from "./dto/credit-card.dto";
@@ -8,9 +8,27 @@ const Decimal = Prisma.Decimal;
 
 /** Response shape with computed fields (availableCredit, currentBalance, nextPaymentDueDate). */
 export interface CreditCardWithComputed extends CreditCard {
-	availableCredit: string;
-	currentBalance: string;
+	availableCredit: number;
+	currentBalance: number;
 	nextPaymentDueDate: Date | null;
+}
+
+/** Aggregated info across all credit cards for a profile. */
+export interface CreditCardInfo {
+	totalAvailableCredit: number;
+	totalNoInterestPayment: number;
+	totalMinPayment: number;
+	totalDebt: number;
+	total: number;
+}
+
+export interface CreditCardPaginatedResult {
+	data: CreditCardWithComputed[];
+	info: CreditCardInfo;
+	page: number;
+	perPage: number;
+	total: number;
+	totalPages: number;
 }
 
 @Injectable()
@@ -22,20 +40,102 @@ export class CreditCardsService {
 		filters?: {
 			sortBy?: "createdAt" | "creditLimit";
 			order?: "asc" | "desc";
+			page?: number;
+			perPage?: number;
 		},
-	): Promise<CreditCardWithComputed[]> {
+	): Promise<CreditCardPaginatedResult> {
 		const sortBy = filters?.sortBy ?? "createdAt";
 		const order = filters?.order ?? "desc";
+		const page = filters?.page ?? 1;
+		const perPage = filters?.perPage ?? 10;
+
 		const cards = await this.prisma.creditCard.findMany({
 			where: { account: { profileId } },
 			include: { account: true },
 			orderBy: { [sortBy]: order },
 		});
-		return Promise.all(
-			(cards as unknown as Array<CreditCard & { account: Account }>).map((c) =>
-				this.toResponseDto(c, c.account),
-			),
+
+		const total = cards.length;
+
+		if (total === 0) {
+			return {
+				data: [],
+				info: {
+					totalAvailableCredit: 0,
+					totalNoInterestPayment: 0,
+					totalMinPayment: 0,
+					totalDebt: 0,
+					total: 0,
+				},
+				page,
+				perPage,
+				total: 0,
+				totalPages: 1,
+			};
+		}
+
+		// Batch-fetch latest unpaid statement per card (eliminates N+1)
+		const cardIds = cards.map((c) => c.id);
+		const unpaidStatements = await this.prisma.cardStatement.findMany({
+			where: { creditCardId: { in: cardIds }, isPaid: false },
+			orderBy: { periodEnd: "desc" },
+			select: {
+				creditCardId: true,
+				paymentDueDate: true,
+				noInterestPayment: true,
+				minPayment: true,
+			},
+		});
+
+		// Keep only the latest unpaid statement per card (already ordered by periodEnd desc)
+		const latestUnpaidByCard = new Map<string, (typeof unpaidStatements)[number]>();
+		for (const stmt of unpaidStatements) {
+			if (!latestUnpaidByCard.has(stmt.creditCardId)) {
+				latestUnpaidByCard.set(stmt.creditCardId, stmt);
+			}
+		}
+
+		const cardsWithAccount = cards as unknown as Array<CreditCard & { account: Account }>;
+
+		// Compute info from ALL cards
+		let totalAvailableCredit = 0;
+		let totalDebt = 0;
+		let totalNoInterestPayment = 0;
+		let totalMinPayment = 0;
+
+		for (const c of cardsWithAccount) {
+			const creditLimit = new Decimal(c.creditLimit.toString());
+			const balance = new Decimal(c.account.balance.toString());
+			totalAvailableCredit += creditLimit.sub(balance).toDecimalPlaces(2).toNumber();
+			totalDebt += balance.toDecimalPlaces(2).toNumber();
+			const stmt = latestUnpaidByCard.get(c.id);
+			if (stmt) {
+				totalNoInterestPayment += Number(stmt.noInterestPayment);
+				totalMinPayment += Number(stmt.minPayment);
+			}
+		}
+
+		// Paginate
+		const start = (page - 1) * perPage;
+		const pageCards = cardsWithAccount.slice(start, start + perPage);
+		const data = pageCards.map((c) =>
+			this.toResponseDto(c, c.account, latestUnpaidByCard.get(c.id) ?? null),
 		);
+
+		return {
+			data,
+			info: {
+				totalAvailableCredit,
+				totalNoInterestPayment,
+				totalMinPayment,
+				totalDebt,
+				total,
+			},
+			page,
+			perPage,
+			total,
+			totalPages: Math.ceil(total / perPage) || 1,
+		};
 	}
 
 	async findOne(id: string, profileId: string): Promise<CreditCardWithComputed> {
@@ -46,7 +146,18 @@ export class CreditCardsService {
 		if (!card) {
 			throw new NotFoundException("Credit card not found");
 		}
-		return this.toResponseDto(card as unknown as CreditCard & { account: Account }, card.account);
+
+		const latestUnpaid = await this.prisma.cardStatement.findFirst({
+			where: { creditCardId: card.id, isPaid: false },
+			orderBy: { periodEnd: "desc" },
+			select: { paymentDueDate: true, noInterestPayment: true, minPayment: true },
+		});
+
+		return this.toResponseDto(
+			card as unknown as CreditCard & { account: Account },
+			card.account,
+			latestUnpaid,
+		);
 	}
 
 	async create(profileId: string, dto: CreateCreditCardDto): Promise<CreditCard> {
@@ -89,27 +200,29 @@ export class CreditCardsService {
 
 	/**
 	 * Maps a CreditCard + its Account to the response DTO with computed fields.
-	 * - availableCredit = creditLimit - account.balance (Decimal, 2dp)
-	 * - currentBalance = account.balance
+	 * - availableCredit = creditLimit - account.balance (number, 2dp)
+	 * - currentBalance = account.balance (number, 2dp)
 	 * - nextPaymentDueDate = latest unpaid statement's paymentDueDate (null if none)
 	 *
-	 * NOT gated by feature flag — availableCredit is a pure read with no side effects.
+	 * Accepts a pre-fetched statement to avoid N+1 queries in list endpoints.
 	 */
-	private async toResponseDto(card: CreditCard, account: Account): Promise<CreditCardWithComputed> {
+	private toResponseDto(
+		card: CreditCard,
+		account: Account,
+		latestUnpaid: {
+			paymentDueDate: Date | null;
+			noInterestPayment: Prisma.Decimal;
+			minPayment: Prisma.Decimal;
+		} | null,
+	): CreditCardWithComputed {
 		const creditLimit = new Decimal(card.creditLimit.toString());
 		const balance = new Decimal(account.balance.toString());
 		const availableCredit = creditLimit.sub(balance).toDecimalPlaces(2);
 
-		const latestUnpaid = await this.prisma.cardStatement.findFirst({
-			where: { creditCardId: card.id, isPaid: false },
-			orderBy: { periodEnd: "desc" },
-			select: { paymentDueDate: true },
-		});
-
 		return {
 			...card,
-			availableCredit: availableCredit.toFixed(2),
-			currentBalance: balance.toDecimalPlaces(2).toFixed(2),
+			availableCredit: availableCredit.toNumber(),
+			currentBalance: balance.toDecimalPlaces(2).toNumber(),
 			nextPaymentDueDate: latestUnpaid?.paymentDueDate ?? null,
 		};
 	}

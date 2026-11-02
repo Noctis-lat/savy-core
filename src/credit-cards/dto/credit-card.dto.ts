@@ -188,16 +188,16 @@ export class CreditCardResponseDto {
 	noInterestMonths!: number;
 
 	@ApiProperty({
-		example: "7000.00",
+		example: 7000.0,
 		description: "Available credit (creditLimit - account.balance), computed at response layer",
 	})
-	availableCredit!: string;
+	availableCredit!: number;
 
 	@ApiProperty({
-		example: "3000.00",
+		example: 3000.0,
 		description: "Current account balance (mapped from account.balance)",
 	})
-	currentBalance!: string;
+	currentBalance!: number;
 
 	@ApiPropertyOptional({
 		example: "2026-11-04T00:00:00.000Z",
@@ -210,6 +210,59 @@ export class CreditCardResponseDto {
 
 	@ApiProperty({ example: "2026-07-28T20:00:00.000Z", description: "Last update date" })
 	updatedAt!: Date;
+}
+
+export class CreditCardInfoDto {
+	@ApiProperty({ example: 47000, description: "Total available credit across all cards" })
+	totalAvailableCredit!: number;
+
+	@ApiProperty({
+		example: 3000,
+		description:
+			"Sum of 'pago para no generar intereses' from latest unpaid statement of each card",
+	})
+	totalNoInterestPayment!: number;
+
+	@ApiProperty({
+		example: 1500,
+		description: "Sum of minimum payments from latest unpaid statement of each card",
+	})
+	totalMinPayment!: number;
+
+	@ApiProperty({
+		example: 53000,
+		description: "Total debt (sum of current balances) across all cards",
+	})
+	totalDebt!: number;
+
+	@ApiProperty({ example: 3, description: "Total count of credit cards" })
+	total!: number;
+}
+
+export class CreditCardListResponseDto {
+	@ApiProperty({
+		type: () => [CreditCardResponseDto],
+		description: "Credit cards in the current page",
+	})
+	data!: CreditCardResponseDto[];
+
+	@ApiProperty({
+		type: () => CreditCardInfoDto,
+		description: "Aggregated totals across all cards (not just this page)",
+	})
+	info!: CreditCardInfoDto;
+
+	@ApiProperty({ example: 1, description: "Current page number" })
+	page!: number;
+
+	@ApiProperty({ example: 10, description: "Items per page" })
+	perPage!: number;
+
+	@ApiProperty({ example: 3, description: "Total matching items across all pages" })
+	total!: number;
+
+	@ApiProperty({ example: 1, description: "Total pages (ceil(total / perPage))" })
+	totalPages!: number;
 }
 
 export class QueryCreditCardsDto {
@@ -232,4 +285,25 @@ export class QueryCreditCardsDto {
 	@IsOptional()
 	@IsEnum(SortOrder)
 	order?: SortOrder;
+
+	@ApiPropertyOptional({ example: 1, default: 1, minimum: 1, description: "Page number (1-based)" })
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	page?: number;
+
+	@ApiPropertyOptional({
+		example: 10,
+		default: 10,
+		minimum: 1,
+		maximum: 100,
+		description: "Items per page",
+	})
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	perPage?: number;
 }

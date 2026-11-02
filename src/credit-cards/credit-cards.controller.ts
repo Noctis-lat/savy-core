@@ -2,7 +2,6 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestj
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../auth/current-user.decorator";
 import {
-	ApiArraySuccessResponse,
 	ApiErrorResponse,
 	ApiMessageResponse,
 	ApiSuccessResponse,
@@ -11,6 +10,7 @@ import type { Profile } from "../generated/prisma/client";
 import { CreditCardsService } from "./credit-cards.service";
 import {
 	CreateCreditCardDto,
+	CreditCardListResponseDto,
 	CreditCardResponseDto,
 	QueryCreditCardsDto,
 	UpdateCreditCardDto,
@@ -23,14 +23,18 @@ export class CreditCardsController {
 	constructor(private readonly creditCardsService: CreditCardsService) {}
 
 	@Get()
-	@ApiOperation({ summary: "List all credit cards for the current user with optional sort" })
-	@ApiArraySuccessResponse(200, CreditCardResponseDto, "Returns array of credit cards")
+	@ApiOperation({
+		summary: "List all credit cards for the current user with pagination and aggregated info",
+	})
+	@ApiSuccessResponse(200, CreditCardListResponseDto, "Returns paginated credit cards with totals")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(500, "Internal server error")
 	async findAll(@CurrentUser() profile: Profile, @Query() query: QueryCreditCardsDto) {
 		return this.creditCardsService.findAllByProfile(profile.id, {
 			sortBy: query.sortBy,
 			order: query.order,
+			page: query.page,
+			perPage: query.perPage,
 		});
 	}
 
