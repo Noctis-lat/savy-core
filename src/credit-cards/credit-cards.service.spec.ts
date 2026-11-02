@@ -467,8 +467,12 @@ describe("CreditCardsService — create and update", () => {
 			creditCard: {
 				findUnique: jest.fn().mockResolvedValue(null),
 				findFirst: jest.fn().mockResolvedValue(makeCard()),
-				create: jest.fn((args: { data: unknown }) => Promise.resolve(args.data)),
-				update: jest.fn((args: { data: unknown }) => Promise.resolve(args.data)),
+				create: jest.fn((args: { data: Record<string, unknown> }) =>
+					Promise.resolve({ ...makeCard(), ...args.data, paymentAccount: null }),
+				),
+				update: jest.fn((args: { data: Record<string, unknown> }) =>
+					Promise.resolve({ ...makeCard(), ...args.data, paymentAccount: null }),
+				),
 			},
 			cardStatement: { findFirst: jest.fn().mockResolvedValue(null) },
 			$transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),

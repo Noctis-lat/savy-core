@@ -114,6 +114,7 @@ model Account {
   transactions        Transaction[]  @relation("AccountTransactions")
   destinationTransactions Transaction[] @relation("DestinationTransactions")
   creditCard          CreditCard?
+  paymentForCards     CreditCard[] @relation("CreditCardPaymentAccount")
   loan                Loan?
   incomeSources       IncomeSource[]
   savingsGoals        SavingsGoal[]
@@ -334,7 +335,11 @@ model CreditCard {
   // Deprecated: replaced by paymentDueDays. Kept nullable for backward compatibility during transition.
   paymentDay         Int?    @map("payment_day") // 1-31
 
+  // Default account used to pay this card (optional, set by the user)
+  paymentAccountId   String? @map("payment_account_id")
+
   account    Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  paymentAccount Account?    @relation("CreditCardPaymentAccount", fields: [paymentAccountId], references: [id], onDelete: SetNull)
   statements CardStatement[]
 
   @@map("credit_cards")

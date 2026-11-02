@@ -10,6 +10,7 @@ const Decimal = Prisma.Decimal;
 
 /** Response shape with computed fields (availableCredit, currentBalance, cycle dates). */
 export interface CreditCardWithComputed extends Omit<CreditCard, "paymentDay"> {
+	paymentAccount?: Account | null;
 	availableCredit: number;
 	currentBalance: number;
 	nextPaymentDueDate: Date | null;
@@ -78,7 +79,7 @@ export class CreditCardsService {
 
 		const cards = await this.prisma.creditCard.findMany({
 			where,
-			include: { account: true },
+			include: { account: true, paymentAccount: true },
 			orderBy: { [sortBy]: order },
 		});
 
@@ -122,7 +123,9 @@ export class CreditCardsService {
 			}
 		}
 
-		const cardsWithAccount = cards as unknown as Array<CreditCard & { account: Account }>;
+		const cardsWithAccount = cards as unknown as Array<
+			CreditCard & { account: Account; paymentAccount: Account | null }
+		>;
 
 		// Compute info from ALL cards
 		let totalAvailableCredit = 0;
@@ -168,7 +171,7 @@ export class CreditCardsService {
 	async findOne(id: string, profileId: string): Promise<CreditCardWithComputed> {
 		const card = await this.prisma.creditCard.findFirst({
 			where: { id, account: { profileId } },
-			include: { account: true },
+			include: { account: true, paymentAccount: true },
 		});
 		if (!card) {
 			throw new NotFoundException("Credit card not found");
@@ -187,7 +190,7 @@ export class CreditCardsService {
 		);
 	}
 
-	async create(profileId: string, dto: CreateCreditCardDto): Promise<CreditCard> {
+	async create(profileId: string, dto: CreateCreditCardDto): Promise<CreditCardWithComputed> {
 		const account = await this.validateAccount(dto.accountId, profileId);
 
 		const existing = await this.prisma.creditCard.findUnique({
@@ -198,9 +201,13 @@ export class CreditCardsService {
 			throw new BadRequestException("This account already has a credit card associated");
 		}
 
+		if (dto.paymentAccountId) {
+			await this.validatePaymentAccount(dto.paymentAccountId, profileId, dto.accountId);
+		}
+
 		// Entity-superior: the card takes its identity from the account once, then owns it.
 		// paymentDay is converted to the paymentDueDays offset and not persisted.
-		return this.prisma.creditCard.create({
+		const card = await this.prisma.creditCard.create({
 			data: {
 				accountId: dto.accountId,
 				name: account.name,
@@ -210,18 +217,35 @@ export class CreditCardsService {
 				cutDay: dto.cutDay,
 				paymentDueDays: calculatePaymentDueDays(dto.cutDay, dto.paymentDay),
 				interestRate: dto.interestRate,
+				...(dto.paymentAccountId ? { paymentAccountId: dto.paymentAccountId } : {}),
 			},
+			include: { account: true, paymentAccount: true },
 		});
+
+		return this.toResponseDto(card, card.account, null);
 	}
 
-	async update(id: string, profileId: string, dto: UpdateCreditCardDto): Promise<CreditCard> {
+	async update(
+		id: string,
+		profileId: string,
+		dto: UpdateCreditCardDto,
+	): Promise<CreditCardWithComputed> {
 		const existing = await this.findOne(id, profileId);
-		const { paymentDay, name, color, icon, ...rest } = dto;
+		const { paymentDay, name, color, icon, paymentAccountId, ...rest } = dto;
 
 		const data: Prisma.CreditCardUpdateInput = { ...rest };
 		// paymentDay recomputes the offset; a cut-day-only change keeps the offset as-is.
 		if (paymentDay !== undefined) {
 			data.paymentDueDays = calculatePaymentDueDays(dto.cutDay ?? existing.cutDay, paymentDay);
+		}
+		// paymentAccountId: null clears it, a string sets it (with ownership validation)
+		if (paymentAccountId !== undefined) {
+			if (paymentAccountId === null) {
+				data.paymentAccount = { disconnect: true };
+			} else {
+				await this.validatePaymentAccount(paymentAccountId, profileId, existing.accountId);
+				data.paymentAccount = { connect: { id: paymentAccountId } };
+			}
 		}
 
 		const identity = {
@@ -229,16 +253,34 @@ export class CreditCardsService {
 			...(color !== undefined ? { color } : {}),
 			...(icon !== undefined ? { icon } : {}),
 		};
+
+		let updated: CreditCard & { account: Account; paymentAccount: Account | null };
 		if (Object.keys(identity).length === 0) {
-			return this.prisma.creditCard.update({ where: { id }, data });
+			updated = await this.prisma.creditCard.update({
+				where: { id },
+				data,
+				include: { account: true, paymentAccount: true },
+			});
+		} else {
+			// Entity-superior: identity changes sync one-way card -> account, atomically.
+			updated = await this.prisma.$transaction(async (tx) => {
+				const card = await tx.creditCard.update({
+					where: { id },
+					data: { ...data, ...identity },
+					include: { account: true, paymentAccount: true },
+				});
+				await tx.account.update({ where: { id: existing.accountId }, data: identity });
+				return card;
+			});
 		}
 
-		// Entity-superior: identity changes sync one-way card -> account, atomically.
-		return this.prisma.$transaction(async (tx) => {
-			const card = await tx.creditCard.update({ where: { id }, data: { ...data, ...identity } });
-			await tx.account.update({ where: { id: existing.accountId }, data: identity });
-			return card;
+		const latestUnpaid = await this.prisma.cardStatement.findFirst({
+			where: { creditCardId: id, isPaid: false },
+			orderBy: { periodEnd: "desc" },
+			select: { paymentDueDate: true, noInterestPayment: true, minPayment: true },
 		});
+
+		return this.toResponseDto(updated, updated.account, latestUnpaid);
 	}
 
 	async remove(id: string, profileId: string): Promise<void> {
@@ -257,7 +299,7 @@ export class CreditCardsService {
 	 * Accepts a pre-fetched statement to avoid N+1 queries in list endpoints.
 	 */
 	private toResponseDto(
-		card: CreditCard,
+		card: CreditCard & { paymentAccount?: Account | null },
 		account: Account,
 		latestUnpaid: {
 			paymentDueDate: Date | null;
@@ -303,5 +345,26 @@ export class CreditCardsService {
 			throw new BadRequestException("Account must be of type CREDIT");
 		}
 		return account;
+	}
+
+	/**
+	 * Validates that a payment account belongs to the profile and is not the card's
+	 * own account (you can't pay a credit card with itself).
+	 */
+	private async validatePaymentAccount(
+		paymentAccountId: string,
+		profileId: string,
+		cardAccountId: string,
+	): Promise<void> {
+		if (paymentAccountId === cardAccountId) {
+			throw new BadRequestException("Payment account cannot be the same as the card account");
+		}
+		const account = await this.prisma.account.findFirst({
+			where: { id: paymentAccountId, profileId },
+			select: { id: true },
+		});
+		if (!account) {
+			throw new NotFoundException("Payment account not found");
+		}
 	}
 }

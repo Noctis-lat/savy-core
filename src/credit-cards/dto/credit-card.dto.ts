@@ -60,6 +60,15 @@ export class CreateCreditCardDto {
 	@IsNumber()
 	@Min(0)
 	interestRate!: number;
+
+	@ApiPropertyOptional({
+		example: "account-uuid",
+		description: "Default payment account ID (DEBIT/CASH account to pay this card)",
+	})
+	@IsOptional()
+	@IsString()
+	@IsNotEmpty()
+	paymentAccountId?: string;
 }
 
 export class UpdateCreditCardDto {
@@ -124,7 +133,17 @@ export class UpdateCreditCardDto {
 	})
 	@IsOptional()
 	@IsString()
+	@IsNotEmpty()
 	icon?: string;
+
+	@ApiPropertyOptional({
+		example: "account-uuid",
+		description: "Default payment account ID (DEBIT/CASH account to pay this card)",
+	})
+	@IsOptional()
+	@IsString()
+	@IsNotEmpty()
+	paymentAccountId?: string | null;
 }
 
 export class CreditCardResponseDto {
@@ -133,6 +152,12 @@ export class CreditCardResponseDto {
 
 	@ApiProperty({ example: "account-uuid", description: "Associated account ID" })
 	accountId!: string;
+
+	@ApiPropertyOptional({
+		example: "account-uuid",
+		description: "Default payment account ID, or null if not set",
+	})
+	paymentAccountId!: string | null;
 
 	@ApiProperty({ example: "Visa Oro", description: "Card name (source of truth for the account)" })
 	name!: string;
