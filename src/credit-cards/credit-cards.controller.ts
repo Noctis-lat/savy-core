@@ -53,6 +53,20 @@ export class CreditCardsController {
 		return this.creditCardsService.findOne(id, profile.id);
 	}
 
+	@Get("account/:accountId")
+	@ApiOperation({ summary: "Get the credit card linked to a given account ID" })
+	@ApiSuccessResponse(
+		200,
+		CreditCardResponseDto,
+		"Returns the credit card linked to the account, with computed fields",
+	)
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Credit card not found for this account")
+	@ApiErrorResponse(500, "Internal server error")
+	async findByAccount(@Param("accountId") accountId: string, @CurrentUser() profile: Profile) {
+		return this.creditCardsService.findByAccount(accountId, profile.id);
+	}
+
 	@Post()
 	@ApiOperation({ summary: "Create credit card details for a CREDIT account" })
 	@ApiSuccessResponse(201, CreditCardResponseDto, "Returns the created credit card")

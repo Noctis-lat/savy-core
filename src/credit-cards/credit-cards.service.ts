@@ -190,6 +190,28 @@ export class CreditCardsService {
 		);
 	}
 
+	async findByAccount(accountId: string, profileId: string): Promise<CreditCardWithComputed> {
+		const card = await this.prisma.creditCard.findUnique({
+			where: { accountId },
+			include: { account: true, paymentAccount: true },
+		});
+		if (!card || card.account.profileId !== profileId) {
+			throw new NotFoundException("Credit card not found for this account");
+		}
+
+		const latestUnpaid = await this.prisma.cardStatement.findFirst({
+			where: { creditCardId: card.id, isPaid: false },
+			orderBy: { periodEnd: "desc" },
+			select: { paymentDueDate: true, noInterestPayment: true, minPayment: true },
+		});
+
+		return this.toResponseDto(
+			card as unknown as CreditCard & { account: Account },
+			card.account,
+			latestUnpaid,
+		);
+	}
+
 	async create(profileId: string, dto: CreateCreditCardDto): Promise<CreditCardWithComputed> {
 		const account = await this.validateAccount(dto.accountId, profileId);
 
