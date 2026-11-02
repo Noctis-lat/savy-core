@@ -155,12 +155,6 @@ export class CreditCardResponseDto {
 	})
 	paymentDueDays?: number;
 
-	@ApiPropertyOptional({
-		example: 25,
-		description: "Deprecated: legacy fixed payment day. No longer written; use paymentDueDays.",
-	})
-	paymentDay?: number;
-
 	@ApiPropertyOptional({ example: 0, description: "Over-limit tolerance amount" })
 	overLimitTolerance?: number;
 
@@ -184,6 +178,19 @@ export class CreditCardResponseDto {
 		description: "Next payment due date from latest unpaid statement, or null",
 	})
 	nextPaymentDueDate!: Date | null;
+
+	@ApiProperty({
+		example: "2026-11-07T00:00:00.000Z",
+		description: "Next upcoming cut date (end of the current billing cycle), computed from cutDay",
+	})
+	currentCycleCutDate!: Date;
+
+	@ApiProperty({
+		example: "2026-11-28T00:00:00.000Z",
+		description:
+			"Projected payment due date for the current cycle (cutDate + paymentDueDays, adjusted to next business day)",
+	})
+	currentCyclePaymentDueDate!: Date;
 
 	@ApiProperty({ example: "2026-07-28T20:00:00.000Z", description: "Creation date" })
 	createdAt!: Date;

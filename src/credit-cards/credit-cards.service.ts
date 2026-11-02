@@ -2,16 +2,19 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import type { Account, CreditCard } from "../generated/prisma/client";
 import { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { calculatePaymentDueDays } from "./calculations/payment-due-days.util";
+import { CreditCalculationService } from "./calculations/credit-calculation.service";
+import { calculatePaymentDueDays, nextCutDate } from "./calculations/payment-due-days.util";
 import { CreateCreditCardDto, UpdateCreditCardDto } from "./dto/credit-card.dto";
 
 const Decimal = Prisma.Decimal;
 
-/** Response shape with computed fields (availableCredit, currentBalance, nextPaymentDueDate). */
-export interface CreditCardWithComputed extends CreditCard {
+/** Response shape with computed fields (availableCredit, currentBalance, cycle dates). */
+export interface CreditCardWithComputed extends Omit<CreditCard, "paymentDay"> {
 	availableCredit: number;
 	currentBalance: number;
 	nextPaymentDueDate: Date | null;
+	currentCycleCutDate: Date;
+	currentCyclePaymentDueDate: Date;
 }
 
 /** Aggregated info across all credit cards for a profile. */
@@ -34,7 +37,10 @@ export interface CreditCardPaginatedResult {
 
 @Injectable()
 export class CreditCardsService {
-	constructor(private readonly prisma: PrismaService) {}
+	constructor(
+		private readonly prisma: PrismaService,
+		private readonly calculationService: CreditCalculationService,
+	) {}
 
 	async findAllByProfile(
 		profileId: string,
@@ -245,6 +251,8 @@ export class CreditCardsService {
 	 * - availableCredit = creditLimit - account.balance (number, 2dp)
 	 * - currentBalance = account.balance (number, 2dp)
 	 * - nextPaymentDueDate = latest unpaid statement's paymentDueDate (null if none)
+	 * - currentCycleCutDate = next upcoming cut date from cutDay (always present)
+	 * - currentCyclePaymentDueDate = cutDate + paymentDueDays, adjusted to next business day
 	 *
 	 * Accepts a pre-fetched statement to avoid N+1 queries in list endpoints.
 	 */
@@ -261,11 +269,22 @@ export class CreditCardsService {
 		const balance = new Decimal(account.balance.toString());
 		const availableCredit = creditLimit.sub(balance).toDecimalPlaces(2);
 
+		const cutDate = nextCutDate(card.cutDay);
+		const paymentDueDate = this.calculationService.calculatePaymentDueDate(
+			cutDate,
+			card.paymentDueDays ?? 20,
+		);
+
+		// paymentDay is a legacy column — strip it from the response
+		const { paymentDay: _paymentDay, ...cardWithoutLegacy } = card;
+
 		return {
-			...card,
+			...cardWithoutLegacy,
 			availableCredit: availableCredit.toNumber(),
 			currentBalance: balance.toDecimalPlaces(2).toNumber(),
 			nextPaymentDueDate: latestUnpaid?.paymentDueDate ?? null,
+			currentCycleCutDate: cutDate,
+			currentCyclePaymentDueDate: paymentDueDate,
 		};
 	}
 

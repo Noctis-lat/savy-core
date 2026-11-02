@@ -3,6 +3,7 @@ import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { CreditCalculationService } from "./calculations/credit-calculation.service";
 import { CreditCardsService } from "./credit-cards.service";
 import {
 	CreateCreditCardDto,
@@ -46,7 +47,11 @@ describe("CreditCardsService (findAll filters)", () => {
 			cardStatement: { findMany: jest.fn().mockResolvedValue([]) },
 		};
 		const module: TestingModule = await Test.createTestingModule({
-			providers: [CreditCardsService, { provide: PrismaService, useValue: prisma }],
+			providers: [
+				CreditCardsService,
+				CreditCalculationService,
+				{ provide: PrismaService, useValue: prisma },
+			],
 		}).compile();
 		service = module.get(CreditCardsService);
 	});
@@ -172,7 +177,11 @@ describe("CreditCardsService — availableCredit computed field", () => {
 			},
 		};
 		const module: TestingModule = await Test.createTestingModule({
-			providers: [CreditCardsService, { provide: PrismaService, useValue: prisma }],
+			providers: [
+				CreditCardsService,
+				CreditCalculationService,
+				{ provide: PrismaService, useValue: prisma },
+			],
 		}).compile();
 		service = module.get(CreditCardsService);
 	});
@@ -184,6 +193,29 @@ describe("CreditCardsService — availableCredit computed field", () => {
 		const result = await service.findAllByProfile("p1");
 		expect(result.data[0].availableCredit).toBe(7000);
 		expect(result.data[0].currentBalance).toBe(3000);
+	});
+
+	it("computes currentCycleCutDate and currentCyclePaymentDueDate from cutDay and paymentDueDays", async () => {
+		// makeCard has cutDay 15, paymentDueDays 20; faked time is Jan 1 2026 in create/update block
+		// but this block uses real timers — so we mock the time
+		jest.useFakeTimers().setSystemTime(new Date(2026, 0, 1, 12));
+		prisma.creditCard.findMany.mockResolvedValue([
+			makeCard({ account: { id: "acct-1", balance: new Decimal(3000) } }),
+		]);
+		const result = await service.findAllByProfile("p1");
+		// cutDay 15, from Jan 1 → Jan 15
+		expect(result.data[0].currentCycleCutDate).toEqual(new Date(2026, 0, 15));
+		// Jan 15 + 20 days = Feb 4 (no weekend/holiday adjustment needed)
+		expect(result.data[0].currentCyclePaymentDueDate).toEqual(new Date(2026, 1, 4));
+		jest.useRealTimers();
+	});
+
+	it("does not include paymentDay in the response (legacy field stripped)", async () => {
+		prisma.creditCard.findMany.mockResolvedValue([
+			makeCard({ account: { id: "acct-1", balance: new Decimal(3000) } }),
+		]);
+		const result = await service.findAllByProfile("p1");
+		expect(result.data[0]).not.toHaveProperty("paymentDay");
 	});
 
 	it("computes fully utilized credit (10000 - 10000 = 0)", async () => {
@@ -283,7 +315,11 @@ describe("CreditCardsService — pagination and info", () => {
 			},
 		};
 		const module: TestingModule = await Test.createTestingModule({
-			providers: [CreditCardsService, { provide: PrismaService, useValue: prisma }],
+			providers: [
+				CreditCardsService,
+				CreditCalculationService,
+				{ provide: PrismaService, useValue: prisma },
+			],
 		}).compile();
 		service = module.get(CreditCardsService);
 	});
@@ -438,7 +474,11 @@ describe("CreditCardsService — create and update", () => {
 			$transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
 		};
 		const module: TestingModule = await Test.createTestingModule({
-			providers: [CreditCardsService, { provide: PrismaService, useValue: prisma }],
+			providers: [
+				CreditCardsService,
+				CreditCalculationService,
+				{ provide: PrismaService, useValue: prisma },
+			],
 		}).compile();
 		service = module.get(CreditCardsService);
 	});

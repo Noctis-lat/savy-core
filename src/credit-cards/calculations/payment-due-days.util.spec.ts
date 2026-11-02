@@ -1,4 +1,4 @@
-import { calculatePaymentDueDays } from "./payment-due-days.util";
+import { calculatePaymentDueDays, nextCutDate } from "./payment-due-days.util";
 
 describe("calculatePaymentDueDays", () => {
 	it("returns the offset within the same month (cut 5, pay 25 → 20)", () => {
@@ -54,5 +54,31 @@ describe("calculatePaymentDueDays", () => {
 	it("handles year boundaries", () => {
 		// Dec 20 → Jan 10 = 21 days
 		expect(calculatePaymentDueDays(20, 10, new Date(2026, 11, 1))).toBe(21);
+	});
+});
+
+describe("nextCutDate", () => {
+	it("returns the cut day in the same month when it has not passed", () => {
+		expect(nextCutDate(7, new Date(2026, 10, 2))).toEqual(new Date(2026, 10, 7));
+	});
+
+	it("returns the cut day on the reference day itself (same-day counts as upcoming)", () => {
+		expect(nextCutDate(7, new Date(2026, 10, 7, 18, 30))).toEqual(new Date(2026, 10, 7));
+	});
+
+	it("rolls to next month when the cut day has passed", () => {
+		expect(nextCutDate(7, new Date(2026, 10, 8))).toEqual(new Date(2026, 11, 7));
+	});
+
+	it("clamps to month length when cut day exceeds days in month (Feb non-leap)", () => {
+		expect(nextCutDate(31, new Date(2026, 1, 1))).toEqual(new Date(2026, 1, 28));
+	});
+
+	it("clamps to month length when cut day exceeds days in month (Feb leap year)", () => {
+		expect(nextCutDate(31, new Date(2024, 1, 1))).toEqual(new Date(2024, 1, 29));
+	});
+
+	it("handles year boundary (Dec → Jan)", () => {
+		expect(nextCutDate(15, new Date(2026, 11, 20))).toEqual(new Date(2027, 0, 15));
 	});
 });

@@ -44,6 +44,25 @@ function dateInMonth(year: number, month: number, day: number): Date {
 	return new Date(firstOfMonth.getFullYear(), firstOfMonth.getMonth(), Math.min(day, daysInMonth));
 }
 
+/**
+ * Computes the next upcoming cut date (end of the current billing cycle) on or
+ * after `referenceDate`. The cut day is clamped to the month length.
+ *
+ * Examples: cutDay 7, ref Nov 2 → Nov 7.
+ *           cutDay 31, ref Feb 1 (non-leap) → Feb 28 (clamped).
+ *           cutDay 7, ref Nov 7 18:00 → Nov 7 (same day counts as upcoming).
+ */
+export function nextCutDate(cutDay: number, referenceDate: Date = new Date()): Date {
+	const reference = stripTime(referenceDate);
+
+	const cutDate = dateInMonth(reference.getFullYear(), reference.getMonth(), cutDay);
+	if (cutDate.getTime() >= reference.getTime()) {
+		return cutDate;
+	}
+
+	return dateInMonth(reference.getFullYear(), reference.getMonth() + 1, cutDay);
+}
+
 /** Returns a new Date with time components zeroed (midnight local). */
 function stripTime(date: Date): Date {
 	const d = new Date(date);
