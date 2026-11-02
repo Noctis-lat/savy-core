@@ -57,6 +57,21 @@ describe("CreditCardsService (findAll filters)", () => {
 		expect(call.orderBy).toEqual({ createdAt: "desc" });
 		expect(call.where.account).toEqual({ profileId: "p1" });
 	});
+
+	it("applies search filter on account name (case-insensitive contains)", async () => {
+		await service.findAllByProfile("p1", { search: "visa" });
+		const call = prisma.creditCard.findMany.mock.calls[0][0];
+		expect(call.where.account).toEqual({
+			profileId: "p1",
+			name: { contains: "visa", mode: "insensitive" },
+		});
+	});
+
+	it("omits name filter when search is not provided", async () => {
+		await service.findAllByProfile("p1", {});
+		const call = prisma.creditCard.findMany.mock.calls[0][0];
+		expect(call.where.account).not.toHaveProperty("name");
+	});
 });
 
 describe("QueryCreditCardsDto validation", () => {

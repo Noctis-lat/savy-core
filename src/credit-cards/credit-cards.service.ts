@@ -42,6 +42,7 @@ export class CreditCardsService {
 			order?: "asc" | "desc";
 			page?: number;
 			perPage?: number;
+			search?: string;
 		},
 	): Promise<CreditCardPaginatedResult> {
 		const sortBy = filters?.sortBy ?? "createdAt";
@@ -49,8 +50,17 @@ export class CreditCardsService {
 		const page = filters?.page ?? 1;
 		const perPage = filters?.perPage ?? 10;
 
+		const where = {
+			account: {
+				profileId,
+				...(filters?.search
+					? { name: { contains: filters.search, mode: "insensitive" as const } }
+					: {}),
+			},
+		};
+
 		const cards = await this.prisma.creditCard.findMany({
-			where: { account: { profileId } },
+			where,
 			include: { account: true },
 			orderBy: { [sortBy]: order },
 		});

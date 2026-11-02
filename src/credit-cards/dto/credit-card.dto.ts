@@ -267,6 +267,15 @@ export class CreditCardListResponseDto {
 
 export class QueryCreditCardsDto {
 	@ApiPropertyOptional({
+		example: "visa",
+		description: "Search by associated account name (case-insensitive)",
+	})
+	@IsOptional()
+	@IsString()
+	@IsNotEmpty()
+	search?: string;
+
+	@ApiPropertyOptional({
 		enum: CreditCardSortBy,
 		example: "createdAt",
 		default: "createdAt",
