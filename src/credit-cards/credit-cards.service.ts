@@ -43,6 +43,9 @@ export class CreditCardsService {
 			page?: number;
 			perPage?: number;
 			search?: string;
+			isActive?: boolean;
+			bankId?: string;
+			hasUnpaidStatement?: boolean;
 		},
 	): Promise<CreditCardPaginatedResult> {
 		const sortBy = filters?.sortBy ?? "createdAt";
@@ -56,7 +59,14 @@ export class CreditCardsService {
 				...(filters?.search
 					? { name: { contains: filters.search, mode: "insensitive" as const } }
 					: {}),
+				...(filters?.isActive !== undefined ? { isActive: filters.isActive } : {}),
+				...(filters?.bankId ? { bankId: filters.bankId } : {}),
 			},
+			...(filters?.hasUnpaidStatement === true
+				? { statements: { some: { isPaid: false } } }
+				: filters?.hasUnpaidStatement === false
+					? { statements: { none: { isPaid: false } } }
+					: {}),
 		};
 
 		const cards = await this.prisma.creditCard.findMany({

@@ -72,6 +72,53 @@ describe("CreditCardsService (findAll filters)", () => {
 		const call = prisma.creditCard.findMany.mock.calls[0][0];
 		expect(call.where.account).not.toHaveProperty("name");
 	});
+
+	it("applies isActive filter on account", async () => {
+		await service.findAllByProfile("p1", { isActive: false });
+		const call = prisma.creditCard.findMany.mock.calls[0][0];
+		expect(call.where.account.isActive).toBe(false);
+	});
+
+	it("applies bankId filter on account", async () => {
+		await service.findAllByProfile("p1", { bankId: "bank-123" });
+		const call = prisma.creditCard.findMany.mock.calls[0][0];
+		expect(call.where.account.bankId).toBe("bank-123");
+	});
+
+	it("applies hasUnpaidStatement=true with statements some isPaid false", async () => {
+		await service.findAllByProfile("p1", { hasUnpaidStatement: true });
+		const call = prisma.creditCard.findMany.mock.calls[0][0];
+		expect(call.where.statements).toEqual({ some: { isPaid: false } });
+	});
+
+	it("applies hasUnpaidStatement=false with statements none isPaid false", async () => {
+		await service.findAllByProfile("p1", { hasUnpaidStatement: false });
+		const call = prisma.creditCard.findMany.mock.calls[0][0];
+		expect(call.where.statements).toEqual({ none: { isPaid: false } });
+	});
+
+	it("omits statements filter when hasUnpaidStatement is not provided", async () => {
+		await service.findAllByProfile("p1", {});
+		const call = prisma.creditCard.findMany.mock.calls[0][0];
+		expect(call.where).not.toHaveProperty("statements");
+	});
+
+	it("combines multiple filters", async () => {
+		await service.findAllByProfile("p1", {
+			search: "visa",
+			isActive: true,
+			bankId: "bank-1",
+			hasUnpaidStatement: true,
+		});
+		const call = prisma.creditCard.findMany.mock.calls[0][0];
+		expect(call.where.account).toEqual({
+			profileId: "p1",
+			name: { contains: "visa", mode: "insensitive" },
+			isActive: true,
+			bankId: "bank-1",
+		});
+		expect(call.where.statements).toEqual({ some: { isPaid: false } });
+	});
 });
 
 describe("QueryCreditCardsDto validation", () => {

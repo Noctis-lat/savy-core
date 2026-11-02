@@ -36,6 +36,10 @@ export class CreditCardsController {
 			page: query.page,
 			perPage: query.perPage,
 			search: query.search,
+			isActive: query.isActive === undefined ? undefined : query.isActive === "true",
+			bankId: query.bankId,
+			hasUnpaidStatement:
+				query.hasUnpaidStatement === undefined ? undefined : query.hasUnpaidStatement === "true",
 		});
 	}
 

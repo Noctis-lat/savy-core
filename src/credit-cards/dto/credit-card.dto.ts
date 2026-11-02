@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Type } from "class-transformer";
 import {
+	IsBooleanString,
 	IsEnum,
 	IsInt,
 	IsNotEmpty,
@@ -274,6 +275,32 @@ export class QueryCreditCardsDto {
 	@IsString()
 	@IsNotEmpty()
 	search?: string;
+
+	@ApiPropertyOptional({
+		example: "true",
+		default: "true",
+		description: "Filter by account active state (accepts 'true'/'false')",
+	})
+	@IsOptional()
+	@IsBooleanString()
+	isActive?: string;
+
+	@ApiPropertyOptional({
+		example: "bank-uuid",
+		description: "Filter by associated bank ID",
+	})
+	@IsOptional()
+	@IsString()
+	@IsNotEmpty()
+	bankId?: string;
+
+	@ApiPropertyOptional({
+		example: "true",
+		description: "Filter cards that have at least one unpaid statement (accepts 'true'/'false')",
+	})
+	@IsOptional()
+	@IsBooleanString()
+	hasUnpaidStatement?: string;
 
 	@ApiPropertyOptional({
 		enum: CreditCardSortBy,
