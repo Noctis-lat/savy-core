@@ -65,8 +65,33 @@ export class LoansService {
 	}
 
 	async remove(id: string, profileId: string): Promise<void> {
-		await this.findOne(id, profileId);
-		await this.prisma.loan.delete({ where: { id } });
+		const loan = await this.prisma.loan.findFirst({
+			where: { id, account: { profileId } },
+			select: { id: true, accountId: true },
+		});
+		if (!loan) {
+			throw new NotFoundException("Loan not found");
+		}
+		// Entity-superior: the loan controls its linked account. Deactivating the
+		// loan also deactivates the account atomically, so the user's financial
+		// picture stops including both, but the historical transactions remain.
+		await this.prisma.$transaction(async (tx) => {
+			await tx.loan.update({ where: { id }, data: { isActive: false } });
+			await tx.account.update({ where: { id: loan.accountId }, data: { isActive: false } });
+		});
+	}
+
+	async removePermanent(id: string, profileId: string): Promise<void> {
+		const loan = await this.prisma.loan.findFirst({
+			where: { id, account: { profileId } },
+			select: { id: true, accountId: true },
+		});
+		if (!loan) {
+			throw new NotFoundException("Loan not found");
+		}
+		// Cascade: deleting the account removes the loan and every transaction
+		// that originated on it (onDelete: Cascade).
+		await this.prisma.account.delete({ where: { id: loan.accountId } });
 	}
 
 	private async validateAccount(accountId: string, profileId: string): Promise<void> {

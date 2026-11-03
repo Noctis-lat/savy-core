@@ -265,6 +265,14 @@ export class BanksService {
 		});
 	}
 
+	async removePermanent(id: string, profileId: string): Promise<void> {
+		await this.findOneBasic(id, profileId);
+		// Cascade: deleting the bank removes every account under it, which in
+		// turn cascades to transactions, credit cards, loans and savings goals
+		// tied to those accounts (onDelete: Cascade on Account.bank).
+		await this.prisma.bank.delete({ where: { id } });
+	}
+
 	// ─── Private helpers ───────────────────────────────────────────────
 
 	private computeBankKpis(accounts: AccountWithLoan[]): BankKpis {

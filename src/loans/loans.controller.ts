@@ -66,13 +66,29 @@ export class LoansController {
 	}
 
 	@Delete(":id")
-	@ApiOperation({ summary: "Delete loan details (the account survives)" })
-	@ApiMessageResponse(200, "Loan deleted")
+	@ApiOperation({
+		summary: "Deactivate a loan (soft delete — keeps history, hides the loan and its account)",
+	})
+	@ApiMessageResponse(200, "Loan deactivated")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Loan not found")
 	@ApiErrorResponse(500, "Internal server error")
 	async remove(@Param("id") id: string, @CurrentUser() profile: Profile) {
 		await this.loansService.remove(id, profile.id);
-		return { message: "Loan deleted" };
+		return { message: "Loan deactivated" };
+	}
+
+	@Delete(":id/permanent")
+	@ApiOperation({
+		summary:
+			"Permanently delete a loan and its account (hard delete — cascade removes transactions)",
+	})
+	@ApiMessageResponse(200, "Loan and its account permanently deleted")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Loan not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async removePermanent(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		await this.loansService.removePermanent(id, profile.id);
+		return { message: "Loan and its account permanently deleted" };
 	}
 }

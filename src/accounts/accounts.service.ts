@@ -256,6 +256,13 @@ export class AccountsService {
 		});
 	}
 
+	async removePermanent(id: string, profileId: string): Promise<void> {
+		await this.findOne(id, profileId);
+		// Cascade: deleting the account removes its transactions, credit card,
+		// loan and savings goal (onDelete: Cascade on each relation).
+		await this.prisma.account.delete({ where: { id } });
+	}
+
 	// ─── Transactions by account ──────────────────────────────────────
 
 	async findTransactions(

@@ -306,8 +306,33 @@ export class CreditCardsService {
 	}
 
 	async remove(id: string, profileId: string): Promise<void> {
-		await this.findOne(id, profileId);
-		await this.prisma.creditCard.delete({ where: { id } });
+		const card = await this.prisma.creditCard.findFirst({
+			where: { id, account: { profileId } },
+			select: { id: true, accountId: true },
+		});
+		if (!card) {
+			throw new NotFoundException("Credit card not found");
+		}
+		// Entity-superior: the card controls its linked account. Deactivating the
+		// card also deactivates the account atomically, so the user's financial
+		// picture stops including both, but the historical transactions remain.
+		await this.prisma.$transaction(async (tx) => {
+			await tx.creditCard.update({ where: { id }, data: { isActive: false } });
+			await tx.account.update({ where: { id: card.accountId }, data: { isActive: false } });
+		});
+	}
+
+	async removePermanent(id: string, profileId: string): Promise<void> {
+		const card = await this.prisma.creditCard.findFirst({
+			where: { id, account: { profileId } },
+			select: { id: true, accountId: true },
+		});
+		if (!card) {
+			throw new NotFoundException("Credit card not found");
+		}
+		// Cascade: deleting the account removes the credit card, its statements
+		// and every transaction that originated on it (onDelete: Cascade).
+		await this.prisma.account.delete({ where: { id: card.accountId } });
 	}
 
 	/**

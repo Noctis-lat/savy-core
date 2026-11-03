@@ -376,7 +376,53 @@ describe("SavingsGoalsService (findByAccount)", () => {
 	});
 });
 
-describe("SavingsGoalsService (remove cascade)", () => {
+describe("SavingsGoalsService (remove soft delete)", () => {
+	let service: SavingsGoalsService;
+	let prisma: {
+		savingsGoal: { findFirst: jest.Mock; update: jest.Mock };
+		account: { update: jest.Mock };
+		$transaction: jest.Mock;
+	};
+
+	beforeEach(async () => {
+		prisma = {
+			savingsGoal: {
+				findFirst: jest.fn().mockResolvedValue({ id: "g1", accountId: "a1" }),
+				update: jest.fn(),
+			},
+			account: { update: jest.fn() },
+			$transaction: jest.fn(async (fn: (tx: typeof prisma) => unknown) => fn(prisma)),
+		};
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [SavingsGoalsService, { provide: PrismaService, useValue: prisma }],
+		}).compile();
+		service = module.get(SavingsGoalsService);
+	});
+
+	it("deactivates the goal and clears the account's isSavingGoal flag atomically", async () => {
+		await service.remove("g1", "p1");
+		expect(prisma.savingsGoal.findFirst).toHaveBeenCalledWith({
+			where: { id: "g1", profileId: "p1" },
+			select: { id: true, accountId: true },
+		});
+		expect(prisma.savingsGoal.update).toHaveBeenCalledWith({
+			where: { id: "g1" },
+			data: { isActive: false },
+		});
+		expect(prisma.account.update).toHaveBeenCalledWith({
+			where: { id: "a1" },
+			data: { isSavingGoal: false },
+		});
+	});
+
+	it("throws NotFoundException when the goal does not exist", async () => {
+		prisma.savingsGoal.findFirst.mockResolvedValue(null);
+		await expect(service.remove("g-missing", "p1")).rejects.toThrow("Savings goal not found");
+		expect(prisma.savingsGoal.update).not.toHaveBeenCalled();
+	});
+});
+
+describe("SavingsGoalsService (removePermanent cascade)", () => {
 	let service: SavingsGoalsService;
 	let prisma: {
 		savingsGoal: { findFirst: jest.Mock; delete: jest.Mock };
@@ -398,7 +444,7 @@ describe("SavingsGoalsService (remove cascade)", () => {
 	});
 
 	it("deletes the backing account (which cascades to the goal and its transactions)", async () => {
-		await service.remove("g1", "p1");
+		await service.removePermanent("g1", "p1");
 		expect(prisma.savingsGoal.findFirst).toHaveBeenCalledWith({
 			where: { id: "g1", profileId: "p1" },
 			select: { id: true, accountId: true },
@@ -411,7 +457,9 @@ describe("SavingsGoalsService (remove cascade)", () => {
 
 	it("throws NotFoundException when the goal does not exist", async () => {
 		prisma.savingsGoal.findFirst.mockResolvedValue(null);
-		await expect(service.remove("g-missing", "p1")).rejects.toThrow("Savings goal not found");
+		await expect(service.removePermanent("g-missing", "p1")).rejects.toThrow(
+			"Savings goal not found",
+		);
 		expect(prisma.account.delete).not.toHaveBeenCalled();
 	});
 });

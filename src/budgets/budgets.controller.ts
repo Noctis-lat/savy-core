@@ -185,13 +185,24 @@ export class BudgetsController {
 	}
 
 	@Delete(":id")
-	@ApiOperation({ summary: "Permanently delete a budget" })
-	@ApiMessageResponse(200, "Budget deleted")
+	@ApiOperation({ summary: "Deactivate a budget (soft delete — reversible via activate)" })
+	@ApiMessageResponse(200, "Budget deactivated")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Budget not found")
 	@ApiErrorResponse(500, "Internal server error")
 	async remove(@Param("id") id: string, @CurrentUser() profile: Profile) {
 		await this.budgetsService.remove(id, profile.id);
-		return { message: "Budget deleted" };
+		return { message: "Budget deactivated" };
+	}
+
+	@Delete(":id/permanent")
+	@ApiOperation({ summary: "Permanently delete a budget (hard delete — removes the record)" })
+	@ApiMessageResponse(200, "Budget permanently deleted")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Budget not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async removePermanent(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		await this.budgetsService.removePermanent(id, profile.id);
+		return { message: "Budget permanently deleted" };
 	}
 }

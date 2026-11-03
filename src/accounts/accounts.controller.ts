@@ -188,4 +188,18 @@ export class AccountsController {
 		await this.accountsService.remove(id, profile.id);
 		return { message: "Account deactivated" };
 	}
+
+	@Delete(":id/permanent")
+	@ApiOperation({
+		summary:
+			"Permanently delete an account (hard delete — cascade removes transactions, credit card, loan and savings goal tied to it)",
+	})
+	@ApiMessageResponse(200, "Account permanently deleted")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Account not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async removePermanent(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		await this.accountsService.removePermanent(id, profile.id);
+		return { message: "Account permanently deleted" };
+	}
 }

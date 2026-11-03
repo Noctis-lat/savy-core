@@ -94,13 +94,30 @@ export class CreditCardsController {
 	}
 
 	@Delete(":id")
-	@ApiOperation({ summary: "Delete credit card details (the account survives)" })
-	@ApiMessageResponse(200, "Credit card deleted")
+	@ApiOperation({
+		summary:
+			"Deactivate a credit card (soft delete — keeps history, hides the card and its account)",
+	})
+	@ApiMessageResponse(200, "Credit card deactivated")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Credit card not found")
 	@ApiErrorResponse(500, "Internal server error")
 	async remove(@Param("id") id: string, @CurrentUser() profile: Profile) {
 		await this.creditCardsService.remove(id, profile.id);
-		return { message: "Credit card deleted" };
+		return { message: "Credit card deactivated" };
+	}
+
+	@Delete(":id/permanent")
+	@ApiOperation({
+		summary:
+			"Permanently delete a credit card and its account (hard delete — cascade removes statements and transactions)",
+	})
+	@ApiMessageResponse(200, "Credit card and its account permanently deleted")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Credit card not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async removePermanent(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		await this.creditCardsService.removePermanent(id, profile.id);
+		return { message: "Credit card and its account permanently deleted" };
 	}
 }

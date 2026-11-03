@@ -208,6 +208,26 @@ export class SavingsGoalsService {
 		if (!goal) {
 			throw new NotFoundException("Savings goal not found");
 		}
+		// Entity-superior: deactivating the goal also clears the account's
+		// isSavingGoal flag, so the account survives as a regular account and
+		// keeps its balance. Both writes happen atomically.
+		await this.prisma.$transaction(async (tx) => {
+			await tx.savingsGoal.update({ where: { id }, data: { isActive: false } });
+			await tx.account.update({
+				where: { id: goal.accountId },
+				data: { isSavingGoal: false },
+			});
+		});
+	}
+
+	async removePermanent(id: string, profileId: string): Promise<void> {
+		const goal = await this.prisma.savingsGoal.findFirst({
+			where: { id, profileId },
+			select: { id: true, accountId: true },
+		});
+		if (!goal) {
+			throw new NotFoundException("Savings goal not found");
+		}
 		// Cascade delete: removing the account cascades to the savings goal
 		// (onDelete: Cascade on SavingsGoal.account) and to every transaction,
 		// credit card, loan, income source and recurring expense tied to it.
@@ -230,6 +250,7 @@ export class SavingsGoalsService {
 			deadline: goal.deadline,
 			color: goal.color,
 			icon: goal.icon,
+			isActive: goal.isActive,
 			currentAmount,
 			isCompleted: currentAmount >= targetAmount,
 			createdAt: goal.createdAt,

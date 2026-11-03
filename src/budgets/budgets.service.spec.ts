@@ -394,15 +394,34 @@ describe("BudgetsService", () => {
 		});
 	});
 
-	// ─── remove ────────────────────────────────────────────────────────
+	// ─── remove / removePermanent ───────────────────────────────────────
 
 	describe("remove", () => {
-		it("hard-deletes after the ownership check", async () => {
+		it("soft-deletes (deactivates) after the ownership check", async () => {
 			prisma.budget.findFirst.mockResolvedValue({ id: "b1", items: [] });
 			await service.remove("b1", "p1");
 			expect(prisma.budget.findFirst.mock.calls[0][0].where).toEqual({ id: "b1", profileId: "p1" });
-			expect(prisma.budget.delete).toHaveBeenCalledWith({ where: { id: "b1" } });
+			expect(prisma.budget.update).toHaveBeenCalledWith({
+				where: { id: "b1" },
+				data: { isActive: false },
+			});
+			expect(prisma.budget.delete).not.toHaveBeenCalled();
+		});
+
+		it("throws NotFoundException and does not update a foreign budget", async () => {
+			prisma.budget.findFirst.mockResolvedValue(null);
+			await expect(service.remove("b1", "p2")).rejects.toThrow(NotFoundException);
 			expect(prisma.budget.update).not.toHaveBeenCalled();
+			expect(prisma.budget.delete).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("removePermanent", () => {
+		it("hard-deletes after the ownership check", async () => {
+			prisma.budget.findFirst.mockResolvedValue({ id: "b1", items: [] });
+			await service.removePermanent("b1", "p1");
+			expect(prisma.budget.findFirst.mock.calls[0][0].where).toEqual({ id: "b1", profileId: "p1" });
+			expect(prisma.budget.delete).toHaveBeenCalledWith({ where: { id: "b1" } });
 			expect(prisma.budget.findFirst.mock.invocationCallOrder[0]).toBeLessThan(
 				prisma.budget.delete.mock.invocationCallOrder[0],
 			);
@@ -410,7 +429,7 @@ describe("BudgetsService", () => {
 
 		it("throws NotFoundException and does not delete a foreign budget", async () => {
 			prisma.budget.findFirst.mockResolvedValue(null);
-			await expect(service.remove("b1", "p2")).rejects.toThrow(NotFoundException);
+			await expect(service.removePermanent("b1", "p2")).rejects.toThrow(NotFoundException);
 			expect(prisma.budget.delete).not.toHaveBeenCalled();
 		});
 	});

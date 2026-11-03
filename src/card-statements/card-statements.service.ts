@@ -137,6 +137,11 @@ export class CardStatementsService {
 
 	async remove(id: string, profileId: string): Promise<void> {
 		await this.findOne(id, profileId);
+		await this.prisma.cardStatement.update({ where: { id }, data: { isActive: false } });
+	}
+
+	async removePermanent(id: string, profileId: string): Promise<void> {
+		await this.findOne(id, profileId);
 		await this.prisma.cardStatement.delete({ where: { id } });
 	}
 

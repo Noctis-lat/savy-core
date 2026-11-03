@@ -170,4 +170,18 @@ export class BanksController {
 		await this.banksService.remove(id, profile.id);
 		return { message: "Bank deactivated" };
 	}
+
+	@Delete(":id/permanent")
+	@ApiOperation({
+		summary:
+			"Permanently delete a bank (hard delete — cascade removes accounts, transactions, cards, loans and savings goals under it)",
+	})
+	@ApiMessageResponse(200, "Bank permanently deleted")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Bank not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async removePermanent(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		await this.banksService.removePermanent(id, profile.id);
+		return { message: "Bank permanently deleted" };
+	}
 }

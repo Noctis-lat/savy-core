@@ -256,8 +256,14 @@ export class BudgetsService {
 		});
 	}
 
-	/** Hard delete. Items and period snapshots cascade via FK; transactions are untouched. */
+	/** Soft delete: deactivate the budget (reversible via PATCH /:id/activate). */
 	async remove(id: string, profileId: string): Promise<void> {
+		await this.findOne(id, profileId);
+		await this.prisma.budget.update({ where: { id }, data: { isActive: false } });
+	}
+
+	/** Hard delete. Items and period snapshots cascade via FK; transactions are untouched. */
+	async removePermanent(id: string, profileId: string): Promise<void> {
 		await this.findOne(id, profileId);
 		await this.prisma.budget.delete({ where: { id } });
 	}

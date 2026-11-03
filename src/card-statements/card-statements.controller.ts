@@ -85,13 +85,24 @@ export class CardStatementsController {
 	}
 
 	@Delete(":id")
-	@ApiOperation({ summary: "Delete a card statement" })
-	@ApiMessageResponse(200, "Card statement deleted")
+	@ApiOperation({ summary: "Deactivate a card statement (soft delete)" })
+	@ApiMessageResponse(200, "Card statement deactivated")
 	@ApiErrorResponse(401, "Unauthorized")
 	@ApiErrorResponse(404, "Card statement not found")
 	@ApiErrorResponse(500, "Internal server error")
 	async remove(@Param("id") id: string, @CurrentUser() profile: Profile) {
 		await this.cardStatementsService.remove(id, profile.id);
-		return { message: "Card statement deleted" };
+		return { message: "Card statement deactivated" };
+	}
+
+	@Delete(":id/permanent")
+	@ApiOperation({ summary: "Permanently delete a card statement (hard delete)" })
+	@ApiMessageResponse(200, "Card statement permanently deleted")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Card statement not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async removePermanent(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		await this.cardStatementsService.removePermanent(id, profile.id);
+		return { message: "Card statement permanently deleted" };
 	}
 }
