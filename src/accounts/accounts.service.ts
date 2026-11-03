@@ -256,6 +256,11 @@ export class AccountsService {
 		});
 	}
 
+	async activate(id: string, profileId: string): Promise<Account> {
+		await this.findOne(id, profileId);
+		return this.prisma.account.update({ where: { id }, data: { isActive: true } });
+	}
+
 	async removePermanent(id: string, profileId: string): Promise<void> {
 		await this.findOne(id, profileId);
 		// Cascade: deleting the account removes its transactions, credit card,

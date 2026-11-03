@@ -140,6 +140,15 @@ export class CardStatementsService {
 		await this.prisma.cardStatement.update({ where: { id }, data: { isActive: false } });
 	}
 
+	async activate(id: string, profileId: string): Promise<CardStatementWithComputed> {
+		await this.findOne(id, profileId);
+		const statement = await this.prisma.cardStatement.update({
+			where: { id },
+			data: { isActive: true },
+		});
+		return this.toResponseDto(statement);
+	}
+
 	async removePermanent(id: string, profileId: string): Promise<void> {
 		await this.findOne(id, profileId);
 		await this.prisma.cardStatement.delete({ where: { id } });

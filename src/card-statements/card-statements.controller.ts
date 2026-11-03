@@ -95,6 +95,16 @@ export class CardStatementsController {
 		return { message: "Card statement deactivated" };
 	}
 
+	@Patch(":id/activate")
+	@ApiOperation({ summary: "Reactivate a previously deactivated card statement" })
+	@ApiSuccessResponse(200, CardStatementResponseDto, "Returns the reactivated card statement")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Card statement not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async activate(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.cardStatementsService.activate(id, profile.id);
+	}
+
 	@Delete(":id/permanent")
 	@ApiOperation({ summary: "Permanently delete a card statement (hard delete)" })
 	@ApiMessageResponse(200, "Card statement permanently deleted")

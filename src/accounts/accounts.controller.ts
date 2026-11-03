@@ -189,6 +189,16 @@ export class AccountsController {
 		return { message: "Account deactivated" };
 	}
 
+	@Patch(":id/activate")
+	@ApiOperation({ summary: "Reactivate a previously deactivated account" })
+	@ApiSuccessResponse(200, AccountResponseDto, "Returns the reactivated account")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Account not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async activate(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.accountsService.activate(id, profile.id);
+	}
+
 	@Delete(":id/permanent")
 	@ApiOperation({
 		summary:

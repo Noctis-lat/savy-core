@@ -171,6 +171,16 @@ export class BanksController {
 		return { message: "Bank deactivated" };
 	}
 
+	@Patch(":id/activate")
+	@ApiOperation({ summary: "Reactivate a previously deactivated bank" })
+	@ApiSuccessResponse(200, BankResponseDto, "Returns the reactivated bank")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Bank not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async activate(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.banksService.activate(id, profile.id);
+	}
+
 	@Delete(":id/permanent")
 	@ApiOperation({
 		summary:

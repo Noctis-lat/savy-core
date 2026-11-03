@@ -220,6 +220,20 @@ export class SavingsGoalsService {
 		});
 	}
 
+	async activate(id: string, profileId: string): Promise<SavingsGoalWithComputed> {
+		const existing = await this.findOne(id, profileId);
+		// Entity-superior: reactivating the goal also restores the account's
+		// isSavingGoal flag atomically, mirroring the soft delete in reverse.
+		await this.prisma.$transaction(async (tx) => {
+			await tx.savingsGoal.update({ where: { id }, data: { isActive: true } });
+			await tx.account.update({
+				where: { id: existing.accountId },
+				data: { isSavingGoal: true },
+			});
+		});
+		return this.findOne(id, profileId);
+	}
+
 	async removePermanent(id: string, profileId: string): Promise<void> {
 		const goal = await this.prisma.savingsGoal.findFirst({
 			where: { id, profileId },

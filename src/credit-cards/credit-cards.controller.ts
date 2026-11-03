@@ -107,6 +107,18 @@ export class CreditCardsController {
 		return { message: "Credit card deactivated" };
 	}
 
+	@Patch(":id/activate")
+	@ApiOperation({
+		summary: "Reactivate a previously deactivated credit card and its linked account",
+	})
+	@ApiSuccessResponse(200, CreditCardResponseDto, "Returns the reactivated credit card")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Credit card not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async activate(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.creditCardsService.activate(id, profile.id);
+	}
+
 	@Delete(":id/permanent")
 	@ApiOperation({
 		summary:

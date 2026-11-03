@@ -78,6 +78,16 @@ export class LoansController {
 		return { message: "Loan deactivated" };
 	}
 
+	@Patch(":id/activate")
+	@ApiOperation({ summary: "Reactivate a previously deactivated loan and its linked account" })
+	@ApiSuccessResponse(200, LoanResponseDto, "Returns the reactivated loan")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Loan not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async activate(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.loansService.activate(id, profile.id);
+	}
+
 	@Delete(":id/permanent")
 	@ApiOperation({
 		summary:

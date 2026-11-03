@@ -81,6 +81,17 @@ export class LoansService {
 		});
 	}
 
+	async activate(id: string, profileId: string): Promise<Loan> {
+		const existing = await this.findOne(id, profileId);
+		// Entity-superior: reactivating the loan also reactivates its linked
+		// account atomically, so both re-enter the user's financial picture.
+		await this.prisma.$transaction(async (tx) => {
+			await tx.loan.update({ where: { id }, data: { isActive: true } });
+			await tx.account.update({ where: { id: existing.accountId }, data: { isActive: true } });
+		});
+		return this.prisma.loan.findUniqueOrThrow({ where: { id } });
+	}
+
 	async removePermanent(id: string, profileId: string): Promise<void> {
 		const loan = await this.prisma.loan.findFirst({
 			where: { id, account: { profileId } },

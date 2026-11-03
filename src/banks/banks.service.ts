@@ -265,6 +265,11 @@ export class BanksService {
 		});
 	}
 
+	async activate(id: string, profileId: string) {
+		await this.findOneBasic(id, profileId);
+		return this.prisma.bank.update({ where: { id }, data: { isActive: true } });
+	}
+
 	async removePermanent(id: string, profileId: string): Promise<void> {
 		await this.findOneBasic(id, profileId);
 		// Cascade: deleting the bank removes every account under it, which in

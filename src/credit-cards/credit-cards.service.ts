@@ -322,6 +322,17 @@ export class CreditCardsService {
 		});
 	}
 
+	async activate(id: string, profileId: string): Promise<CreditCardWithComputed> {
+		const existing = await this.findOne(id, profileId);
+		// Entity-superior: reactivating the card also reactivates its linked
+		// account atomically, so both re-enter the user's financial picture.
+		await this.prisma.$transaction(async (tx) => {
+			await tx.creditCard.update({ where: { id }, data: { isActive: true } });
+			await tx.account.update({ where: { id: existing.accountId }, data: { isActive: true } });
+		});
+		return this.findOne(id, profileId);
+	}
+
 	async removePermanent(id: string, profileId: string): Promise<void> {
 		const card = await this.prisma.creditCard.findFirst({
 			where: { id, account: { profileId } },

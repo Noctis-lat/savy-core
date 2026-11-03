@@ -113,6 +113,19 @@ export class SavingsGoalsController {
 		return { message: "Savings goal deactivated" };
 	}
 
+	@Patch(":id/activate")
+	@ApiOperation({
+		summary:
+			"Reactivate a previously deactivated savings goal and restore its backing account's savings-goal flag",
+	})
+	@ApiSuccessResponse(200, SavingsGoalResponseDto, "Returns the reactivated savings goal")
+	@ApiErrorResponse(401, "Unauthorized")
+	@ApiErrorResponse(404, "Savings goal not found")
+	@ApiErrorResponse(500, "Internal server error")
+	async activate(@Param("id") id: string, @CurrentUser() profile: Profile) {
+		return this.savingsGoalsService.activate(id, profile.id);
+	}
+
 	@Delete(":id/permanent")
 	@ApiOperation({
 		summary:
