@@ -4,7 +4,7 @@ import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { PrismaService } from "../prisma/prisma.service";
 import { AccountsService } from "./accounts.service";
-import { QueryAccountsDto } from "./dto/account.dto";
+import { CreateAccountDto, QueryAccountsDto } from "./dto/account.dto";
 
 describe("AccountsService", () => {
 	let service: AccountsService;
@@ -232,6 +232,125 @@ describe("AccountsService — entity-superior identity guard", () => {
 		expect(prisma.account.update).toHaveBeenCalledWith({
 			where: { id: "acct-1" },
 			data: { name: "Wallet", color: "#000", icon: "wallet" },
+		});
+	});
+});
+
+describe("AccountsService — create with opening balance", () => {
+	let service: AccountsService;
+	let prisma: {
+		account: { create: jest.Mock; findFirst: jest.Mock; findUnique: jest.Mock };
+		transaction: { create: jest.Mock };
+		$transaction: jest.Mock;
+	};
+
+	beforeEach(async () => {
+		prisma = {
+			account: {
+				create: jest.fn().mockResolvedValue({
+					id: "acct-1",
+					createdAt: new Date("2026-11-02T19:42:48.000Z"),
+				}),
+				findFirst: jest.fn(),
+				findUnique: jest.fn(),
+			},
+			transaction: { create: jest.fn().mockResolvedValue({ id: "tx-1" }) },
+			$transaction: jest.fn(),
+		};
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [AccountsService, { provide: PrismaService, useValue: prisma }],
+		}).compile();
+		service = module.get(AccountsService);
+	});
+
+	it("creates only the account when balance is 0 (no opening transaction)", async () => {
+		const dto = plainToInstance(CreateAccountDto, { name: "Wallet", type: "CASH" });
+		await service.create("p1", dto);
+		expect(prisma.account.create).toHaveBeenCalledTimes(1);
+		expect(prisma.$transaction).not.toHaveBeenCalled();
+		expect(prisma.transaction.create).not.toHaveBeenCalled();
+	});
+
+	it("creates EXPENSE opening transaction for CREDIT with positive balance", async () => {
+		const tx: Record<string, Record<string, jest.Mock>> = {
+			account: {
+				create: jest
+					.fn()
+					.mockResolvedValue({ id: "acct-1", createdAt: new Date("2026-11-02T19:42:48.000Z") }),
+			},
+			transaction: { create: jest.fn().mockResolvedValue({ id: "tx-1" }) },
+		};
+		prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx));
+
+		const dto = plainToInstance(CreateAccountDto, {
+			name: "Visa",
+			type: "CREDIT",
+			balance: 200000,
+		});
+		await service.create("p1", dto);
+
+		expect(tx.transaction.create).toHaveBeenCalledWith({
+			data: {
+				accountId: "acct-1",
+				type: "EXPENSE",
+				amount: 200000,
+				description: "Opening balance",
+				date: new Date("2026-11-02T19:42:48.000Z"),
+			},
+		});
+	});
+
+	it("creates INCOME opening transaction for DEBIT with positive balance", async () => {
+		const tx: Record<string, Record<string, jest.Mock>> = {
+			account: {
+				create: jest
+					.fn()
+					.mockResolvedValue({ id: "acct-1", createdAt: new Date("2026-11-02T19:42:48.000Z") }),
+			},
+			transaction: { create: jest.fn().mockResolvedValue({ id: "tx-1" }) },
+		};
+		prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx));
+
+		const dto = plainToInstance(CreateAccountDto, {
+			name: "Nómina",
+			type: "DEBIT",
+			balance: 50000,
+		});
+		await service.create("p1", dto);
+
+		expect(tx.transaction.create).toHaveBeenCalledWith({
+			data: {
+				accountId: "acct-1",
+				type: "INCOME",
+				amount: 50000,
+				description: "Opening balance",
+				date: new Date("2026-11-02T19:42:48.000Z"),
+			},
+		});
+	});
+
+	it("creates INCOME opening transaction for CREDIT with negative balance (saldo a favor)", async () => {
+		const tx: Record<string, Record<string, jest.Mock>> = {
+			account: {
+				create: jest
+					.fn()
+					.mockResolvedValue({ id: "acct-1", createdAt: new Date("2026-11-02T19:42:48.000Z") }),
+			},
+			transaction: { create: jest.fn().mockResolvedValue({ id: "tx-1" }) },
+		};
+		prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(tx));
+
+		const dto = plainToInstance(CreateAccountDto, { name: "Visa", type: "CREDIT", balance: -5000 });
+		await service.create("p1", dto);
+
+		expect(tx.transaction.create).toHaveBeenCalledWith({
+			data: {
+				accountId: "acct-1",
+				type: "INCOME",
+				amount: 5000,
+				description: "Opening balance",
+				date: new Date("2026-11-02T19:42:48.000Z"),
+			},
 		});
 	});
 });

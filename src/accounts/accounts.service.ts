@@ -129,18 +129,72 @@ export class AccountsService {
 			await this.validateBankOwnership(dto.bankId, profileId);
 		}
 
-		return this.prisma.account.create({
-			data: {
-				profileId,
-				bankId: dto.bankId ?? null,
-				name: dto.name,
-				type: dto.type,
-				currency: dto.currency ?? "MXN",
-				balance: dto.balance ?? 0,
-				color: dto.color,
-				icon: dto.icon,
-				isSavingGoal: dto.isSavingGoal ?? false,
-			},
+		const initialBalance = dto.balance ?? 0;
+
+		// No opening balance — just create the account
+		if (initialBalance === 0) {
+			return this.prisma.account.create({
+				data: {
+					profileId,
+					bankId: dto.bankId ?? null,
+					name: dto.name,
+					type: dto.type,
+					currency: dto.currency ?? "MXN",
+					balance: 0,
+					color: dto.color,
+					icon: dto.icon,
+					isSavingGoal: dto.isSavingGoal ?? false,
+				},
+			});
+		}
+
+		// Create account + opening balance transaction atomically.
+		// The transaction materializes the initial balance so that statement
+		// generation can reconstruct startingBalance correctly (0 before the
+		// transaction date, actual balance after). Without it, the system
+		// treats the initial balance as if it existed for the entire first
+		// period, inflating the average daily balance.
+		//
+		// Transaction type reflects the semantic meaning:
+		// - Liability (CREDIT/LOAN) + positive balance → EXPENSE (debt you owed)
+		// - Liability + negative balance (saldo a favor) → INCOME (credit)
+		// - Asset (DEBIT/CASH) + positive balance → INCOME (money you had)
+		// - Asset + negative balance (overdraft) → EXPENSE (money you owed)
+		const isLiability = dto.type === "CREDIT" || dto.type === "LOAN";
+		const openingType: TransactionType = isLiability
+			? initialBalance > 0
+				? "EXPENSE"
+				: "INCOME"
+			: initialBalance > 0
+				? "INCOME"
+				: "EXPENSE";
+
+		return this.prisma.$transaction(async (tx) => {
+			const account = await tx.account.create({
+				data: {
+					profileId,
+					bankId: dto.bankId ?? null,
+					name: dto.name,
+					type: dto.type,
+					currency: dto.currency ?? "MXN",
+					balance: initialBalance,
+					color: dto.color,
+					icon: dto.icon,
+					isSavingGoal: dto.isSavingGoal ?? false,
+				},
+			});
+
+			await tx.transaction.create({
+				data: {
+					accountId: account.id,
+					type: openingType,
+					amount: Math.abs(initialBalance),
+					description: "Opening balance",
+					date: account.createdAt,
+				},
+			});
+
+			return account;
 		});
 	}
 
