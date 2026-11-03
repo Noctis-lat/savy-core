@@ -62,8 +62,19 @@ export class CardStatementResponseDto {
 	@ApiProperty({ example: 2250, description: "Interest amount" })
 	interestAmount!: number;
 
-	@ApiProperty({ example: false, description: "Whether the statement is paid" })
+	@ApiProperty({
+		example: false,
+		description: "Whether the statement is paid",
+	})
 	isPaid!: boolean;
+
+	@ApiProperty({
+		enum: ["pending", "overdue", "partial", "paid"],
+		example: "pending",
+		description:
+			"Computed display status: pending (due date not reached), overdue (due date passed, paid < PNGI), partial (due date passed, paid ≥ PNGI but < balance), paid (fully settled)",
+	})
+	status!: "pending" | "overdue" | "partial" | "paid";
 
 	@ApiPropertyOptional({
 		example: "2026-11-04T00:00:00.000Z",

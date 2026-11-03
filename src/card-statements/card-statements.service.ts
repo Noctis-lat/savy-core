@@ -7,9 +7,13 @@ import {
 	type InstallmentDetail,
 	type InstallmentPlanForDetail,
 } from "./installment-billing.util";
+import { computeStatementStatus, type StatementStatus } from "./statement-status.util";
 
 /** A statement transaction; INSTALLMENT rows carry their plan summary. */
 export type StatementTransaction = Transaction & { installment: InstallmentDetail | null };
+
+/** Response shape with computed status field. */
+export type CardStatementWithComputed = CardStatement & { status: StatementStatus };
 
 @Injectable()
 export class CardStatementsService {
@@ -23,10 +27,10 @@ export class CardStatementsService {
 			sortBy?: "periodEnd" | "balance" | "createdAt";
 			order?: "asc" | "desc";
 		},
-	): Promise<CardStatement[]> {
+	): Promise<CardStatementWithComputed[]> {
 		const sortBy = filters?.sortBy ?? "createdAt";
 		const order = filters?.order ?? "desc";
-		return this.prisma.cardStatement.findMany({
+		const statements = await this.prisma.cardStatement.findMany({
 			where: {
 				creditCard: {
 					account: { profileId },
@@ -36,9 +40,10 @@ export class CardStatementsService {
 			},
 			orderBy: { [sortBy]: order },
 		});
+		return statements.map((s) => this.toResponseDto(s));
 	}
 
-	async findOne(id: string, profileId: string): Promise<CardStatement> {
+	async findOne(id: string, profileId: string): Promise<CardStatementWithComputed> {
 		const statement = await this.prisma.cardStatement.findFirst({
 			where: {
 				id,
@@ -48,7 +53,7 @@ export class CardStatementsService {
 		if (!statement) {
 			throw new NotFoundException("Card statement not found");
 		}
-		return statement;
+		return this.toResponseDto(statement);
 	}
 
 	/**
@@ -117,16 +122,28 @@ export class CardStatementsService {
 		return new Map(plans.map((p) => [p.id, p]));
 	}
 
-	async update(id: string, profileId: string, dto: UpdateCardStatementDto): Promise<CardStatement> {
+	async update(
+		id: string,
+		profileId: string,
+		dto: UpdateCardStatementDto,
+	): Promise<CardStatementWithComputed> {
 		await this.findOne(id, profileId);
-		return this.prisma.cardStatement.update({
+		const statement = await this.prisma.cardStatement.update({
 			where: { id },
 			data: dto,
 		});
+		return this.toResponseDto(statement);
 	}
 
 	async remove(id: string, profileId: string): Promise<void> {
 		await this.findOne(id, profileId);
 		await this.prisma.cardStatement.delete({ where: { id } });
+	}
+
+	private toResponseDto(statement: CardStatement): CardStatementWithComputed {
+		return {
+			...statement,
+			status: computeStatementStatus(statement),
+		};
 	}
 }
