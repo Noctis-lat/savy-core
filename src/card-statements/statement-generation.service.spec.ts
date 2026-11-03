@@ -78,6 +78,7 @@ describe("StatementGenerationService", () => {
 				interestRate: new Decimal(0.36),
 				creditLimit: new Decimal(20000),
 				paymentDueDays: 20,
+				createdAt: new Date(2026, 0, 1), // card created Jan 1 2026
 			};
 			prisma.creditCard.findMany.mockResolvedValue([card]);
 
@@ -132,6 +133,7 @@ describe("StatementGenerationService", () => {
 				interestRate: new Decimal(0.36),
 				creditLimit: new Decimal(20000),
 				paymentDueDays: 20,
+				createdAt: new Date(2026, 0, 1),
 			};
 			prisma.creditCard.findMany.mockResolvedValue([card]);
 
@@ -192,6 +194,7 @@ describe("StatementGenerationService", () => {
 				interestRate: new Decimal(0.36),
 				creditLimit: new Decimal(20000),
 				paymentDueDays: 20,
+				createdAt: new Date(2026, 0, 1),
 			};
 			prisma.creditCard.findMany.mockResolvedValue([card]);
 
@@ -244,6 +247,7 @@ describe("StatementGenerationService", () => {
 				interestRate: new Decimal(0.36),
 				creditLimit: new Decimal(20000),
 				paymentDueDays: 20,
+				createdAt: new Date(2026, 0, 1),
 			};
 			prisma.creditCard.findMany.mockResolvedValue([card]);
 
@@ -299,6 +303,7 @@ describe("StatementGenerationService", () => {
 				interestRate: new Decimal(0.36),
 				creditLimit: new Decimal(20000),
 				paymentDueDays: 20,
+				createdAt: new Date(2026, 0, 1),
 			};
 			prisma.creditCard.findMany.mockResolvedValue([card]);
 
@@ -339,6 +344,62 @@ describe("StatementGenerationService", () => {
 			// Calculation service called for the empty period
 			expect(calcService.calculateAverageDailyBalance).toHaveBeenCalled();
 		});
+
+		it("does not generate statements for periods before the card was created", async () => {
+			configService.get.mockImplementation((key: string) => {
+				if (key === "CREDIT_CARD_MAX_CATCH_UP_PERIODS") return "12";
+				return undefined;
+			});
+
+			// Card created Nov 2 2026, cutDay 7
+			// The period Sep 8 - Oct 7 ended BEFORE the card existed → must be skipped
+			// The period Oct 8 - Nov 7 hasn't ended yet (Nov 7 is in the future) → no statement
+			// Expected: zero statements generated
+			const card = {
+				id: "card-1",
+				accountId: "acc-1",
+				cutDay: 7,
+				interestRate: new Decimal(0.36),
+				creditLimit: new Decimal(1000000),
+				paymentDueDays: 21,
+				createdAt: new Date(2026, 10, 2), // Nov 2 2026
+			};
+			prisma.creditCard.findMany.mockResolvedValue([card]);
+
+			const tx = createMockTx();
+			tx.cardStatement = {
+				findFirst: jest.fn().mockResolvedValue(null),
+				findUnique: jest.fn().mockResolvedValue(null),
+				create: jest.fn().mockResolvedValue({ id: "stmt-1" }),
+			};
+			tx.transaction = {
+				findMany: jest.fn().mockResolvedValue([]),
+				updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+			};
+			tx.installmentPlan = {
+				findMany: jest.fn().mockResolvedValue([]),
+				update: jest.fn().mockResolvedValue({}),
+			};
+			tx.account = {
+				findFirst: jest.fn().mockResolvedValue({ id: "acc-1", balance: new Decimal(200000) }),
+			};
+
+			prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
+				return cb(tx);
+			});
+
+			// Current date is Nov 3 2026 (after card creation, before Nov 7 cut)
+			const realDateNow = Date.now;
+			Date.now = jest.fn(() => new Date(2026, 10, 3).getTime());
+			try {
+				await service.generatePending("profile-1");
+			} finally {
+				Date.now = realDateNow;
+			}
+
+			// No statements should be generated — the only passed period (Oct 7) was before createdAt
+			expect(tx.cardStatement.create).not.toHaveBeenCalled();
+		});
 	});
 
 	describe("installment transactions at the cut", () => {
@@ -349,6 +410,7 @@ describe("StatementGenerationService", () => {
 			interestRate: new Decimal(0.36),
 			creditLimit: new Decimal(20000),
 			paymentDueDays: 20,
+			createdAt: new Date(2026, 0, 1),
 		};
 
 		function planFixture(overrides: Record<string, unknown>) {

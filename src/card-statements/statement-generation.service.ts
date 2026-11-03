@@ -25,6 +25,7 @@ interface CreditCardForGeneration {
 	interestRate: Decimal;
 	creditLimit: Decimal;
 	paymentDueDays: number | null;
+	createdAt: Date;
 }
 
 /** Minimum shape of the statement preceding a period (drives the interest trigger). */
@@ -86,6 +87,7 @@ export class StatementGenerationService {
 			const periods = this.computeMissedPeriods(
 				lastStatement?.periodEnd ?? null,
 				card.cutDay,
+				card.createdAt,
 				now,
 				maxCatchUp,
 			);
@@ -395,10 +397,14 @@ export class StatementGenerationService {
 	 * ending on the card's cut day.
 	 *
 	 * Periods are ordered oldest-first so they are generated sequentially.
+	 *
+	 * Periods that ended before the card's createdAt are skipped — a card
+	 * cannot have statements for months it didn't exist.
 	 */
 	private computeMissedPeriods(
 		lastPeriodEnd: Date | null,
 		cutDay: number,
+		cardCreatedAt: Date,
 		now: Date,
 		maxCatchUp: number,
 	): Period[] {
@@ -407,6 +413,9 @@ export class StatementGenerationService {
 		// Normalize `now` to date-only (midnight local) for consistent comparison
 		const nowMidnight = new Date(now);
 		nowMidnight.setHours(0, 0, 0, 0);
+
+		const createdAtMidnight = new Date(cardCreatedAt);
+		createdAtMidnight.setHours(0, 0, 0, 0);
 
 		// Start from the day after the last statement's periodEnd (or from one month before now if none)
 		let cursor: Date;
@@ -427,6 +436,15 @@ export class StatementGenerationService {
 			// Only generate if the cut date has passed (periodEnd is before today)
 			if (periodEnd >= nowMidnight) {
 				break;
+			}
+
+			// Skip periods that ended before the card existed
+			if (periodEnd < createdAtMidnight) {
+				const nextStart = new Date(periodEnd);
+				nextStart.setHours(0, 0, 0, 0);
+				nextStart.setDate(nextStart.getDate() + 1);
+				cursor = nextStart;
+				continue;
 			}
 
 			periods.push({ periodStart, periodEnd });
