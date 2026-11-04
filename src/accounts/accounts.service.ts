@@ -51,7 +51,7 @@ export class AccountsService {
 	async findAllByProfile(
 		profileId: string,
 		filters?: {
-			type?: AccountType;
+			type?: AccountType | "SAVINGS";
 			bankId?: string;
 			isActive?: boolean;
 			sortBy?: "balance" | "name" | "createdAt";
@@ -74,7 +74,11 @@ export class AccountsService {
 		const where: Prisma.AccountWhereInput = {
 			profileId,
 			isActive,
-			...(filters?.type ? { type: filters.type } : {}),
+			...(filters?.type
+				? filters.type === "SAVINGS"
+					? { isSavingGoal: true }
+					: { type: filters.type }
+				: {}),
 			...(filters?.bankId ? { bankId: filters.bankId } : {}),
 			...(filters?.search ? { name: { contains: filters.search, mode: "insensitive" } } : {}),
 		};

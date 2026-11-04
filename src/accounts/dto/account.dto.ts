@@ -20,6 +20,19 @@ enum AccountType {
 	CASH = "CASH",
 }
 
+/**
+ * Query-only enum for the `type` filter on GET /accounts.
+ * Includes the real AccountType values plus a virtual `SAVINGS`
+ * that filters by `isSavingGoal: true` instead of `type`.
+ */
+enum AccountTypeFilter {
+	DEBIT = "DEBIT",
+	CREDIT = "CREDIT",
+	LOAN = "LOAN",
+	CASH = "CASH",
+	SAVINGS = "SAVINGS",
+}
+
 enum AccountSortBy {
 	balance = "balance",
 	name = "name",
@@ -241,13 +254,14 @@ export class AccountsListDataDto {
 
 export class QueryAccountsDto {
 	@ApiPropertyOptional({
-		enum: AccountType,
+		enum: AccountTypeFilter,
 		example: "DEBIT",
-		description: "Filter by account type",
+		description:
+			"Filter by account type. Use SAVINGS to filter accounts backing savings goals (isSavingGoal=true).",
 	})
 	@IsOptional()
-	@IsEnum(AccountType)
-	type?: AccountType;
+	@IsEnum(AccountTypeFilter)
+	type?: AccountTypeFilter;
 
 	@ApiPropertyOptional({ example: "bank-uuid", description: "Filter by bank" })
 	@IsOptional()
