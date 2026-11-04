@@ -348,4 +348,14 @@ export class QueryAccountsDto {
 	@IsOptional()
 	@IsEnum(GroupBy)
 	groupedBy?: GroupBy;
+
+	@ApiPropertyOptional({
+		example: "true",
+		default: "false",
+		description:
+			'Exclude accounts backing savings goals (isSavingGoal=false). Accepts "true"/"false".',
+	})
+	@IsOptional()
+	@IsBooleanString()
+	excludeSavings?: string;
 }

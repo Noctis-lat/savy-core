@@ -61,6 +61,7 @@ export class AccountsService {
 			includeInfo?: boolean;
 			search?: string;
 			groupedBy?: "banks" | "types";
+			excludeSavings?: boolean;
 		},
 	): Promise<AccountsListResult> {
 		const sortBy = filters?.sortBy ?? "createdAt";
@@ -79,6 +80,7 @@ export class AccountsService {
 					? { isSavingGoal: true }
 					: { type: filters.type }
 				: {}),
+			...(filters?.excludeSavings ? { isSavingGoal: false } : {}),
 			...(filters?.bankId ? { bankId: filters.bankId } : {}),
 			...(filters?.search ? { name: { contains: filters.search, mode: "insensitive" } } : {}),
 		};

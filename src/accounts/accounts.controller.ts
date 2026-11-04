@@ -69,6 +69,7 @@ export class AccountsController {
 			includeInfo: query.info === "true",
 			search: query.search,
 			groupedBy: query.groupedBy,
+			excludeSavings: query.excludeSavings === "true",
 		});
 	}
 
